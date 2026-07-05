@@ -19,6 +19,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.LinkedHashMap;
 import java.util.List;
+
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -51,44 +52,44 @@ public class SecurityConfig {
         HttpSessionSecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
         http
-            .cors(Customizer.withDefaults())
-            .csrf(csrf -> csrf.disable())
-            .securityContext(securityContext -> securityContext.securityContextRepository(securityContextRepository))
-            .exceptionHandling(exception -> exception.authenticationEntryPoint(authenticationEntryPoint()))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers(
-                    "/actuator/health",
-                    "/actuator/info",
-                    "/api/health/basic",
-                    "/api/auth/login",
-                    "/internal/**"
-                ).permitAll()
-                .requestMatchers(
-                    "/",
-                    "/index.html",
-                    "/assets/**",
-                    "/favicon.ico",
-                    "/*.js",
-                    "/*.css",
-                    "/*.png",
-                    "/*.svg",
-                    "/*.ico",
-                    "/*.woff2"
-                ).permitAll()
-                .requestMatchers(
-                    "/api/admin/**",
-                    "/api/system/**",
-                    "/api/sys/**",
-                    "/api/rag/**",
-                    "/api/knowledge-bases/**",
-                    "/api/audit/**"
-                ).hasAnyAuthority("ADMIN", "ROLE_ADMIN", "SUPER_ADMIN", "ROLE_SUPER_ADMIN", "DEVELOPER", "ROLE_DEVELOPER")
-                .requestMatchers("/api/chat/**", "/api/user/**").authenticated()
-                .anyRequest().permitAll()
-            )
-            .httpBasic(httpBasic -> httpBasic.disable())
-            .formLogin(form -> form.disable())
-            .logout(logout -> logout.disable());
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .securityContext(securityContext -> securityContext.securityContextRepository(securityContextRepository))
+                .exceptionHandling(exception -> exception.authenticationEntryPoint(authenticationEntryPoint()))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                "/actuator/health",
+                                "/actuator/info",
+                                "/api/health/basic",
+                                "/api/auth/login",
+                                "/internal/**"
+                        ).permitAll()
+                        .requestMatchers(
+                                "/",
+                                "/index.html",
+                                "/assets/**",
+                                "/favicon.ico",
+                                "/*.js",
+                                "/*.css",
+                                "/*.png",
+                                "/*.svg",
+                                "/*.ico",
+                                "/*.woff2"
+                        ).permitAll()
+                        .requestMatchers(
+                                "/api/admin/**",
+                                "/api/system/**",
+                                "/api/sys/**",
+                                "/api/rag/**",
+                                "/api/knowledge-bases/**",
+                                "/api/audit/**"
+                        ).hasAnyAuthority("ADMIN", "ROLE_ADMIN", "SUPER_ADMIN", "ROLE_SUPER_ADMIN", "DEVELOPER", "ROLE_DEVELOPER")
+                        .requestMatchers("/api/chat/**", "/api/user/**").authenticated()
+                        .anyRequest().permitAll()
+                )
+                .httpBasic(httpBasic -> httpBasic.disable())
+                .formLogin(form -> form.disable())
+                .logout(logout -> logout.disable());
 
         return http.build();
     }
@@ -98,8 +99,8 @@ public class SecurityConfig {
      */
     @Bean
     public DaoAuthenticationProvider daoAuthenticationProvider(
-        DbUserDetailsService dbUserDetailsService,
-        PasswordEncoder passwordEncoder
+            DbUserDetailsService dbUserDetailsService,
+            PasswordEncoder passwordEncoder
     ) {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(dbUserDetailsService);
@@ -143,8 +144,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(
-            "http://localhost:5173",
-            "http://127.0.0.1:5173"
+                "http://127.0.0.1:5174",
+                "http://localhost:5174"
         ));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
