@@ -24,11 +24,12 @@ import {
   fetchSystemDefaultKb,
 } from '../api/knowledge'
 import { useAuthStore } from '../stores/auth'
+import { pinia } from '../stores'
 import type { KnowledgeBaseItem, KnowledgeDocumentItem, KnowledgeUploadPolicy } from '../types/knowledge'
 import type { DocumentParseProgress } from '../types/system'
 
 const router = useRouter()
-const authStore = useAuthStore()
+const authStore = useAuthStore(pinia)
 const currentUsername = computed(() => authStore.user?.username || '')
 const isDeveloper = computed(() => currentUsername.value.toLowerCase() === 'developer')
 /** 超管判定: 对齐后端 RbacDefaultsProperties.superAdminUsername (默认 'admin') */

@@ -5,10 +5,11 @@ import { Lock, User } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
+import { pinia } from '../stores'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
 
 const router = useRouter()
-const authStore = useAuthStore()
+const authStore = useAuthStore(pinia)
 const loading = ref(false)
 const captchaRef = ref<InstanceType<typeof SlideCaptcha> | null>(null)
 
@@ -31,6 +32,7 @@ async function onCaptchaChange(data: { passed: boolean; captchaToken?: string })
   loading.value = true
   try {
     await authStore.loginWithPassword(form.username, form.password, data.captchaToken)
+    await authStore.refreshUser()
     ElMessage.success('登录成功')
     router.push('/system/settings')
   } catch (error) {

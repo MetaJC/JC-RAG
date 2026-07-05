@@ -1,6 +1,7 @@
 import type { Directive, DirectiveBinding } from 'vue'
 
 import { useAuthStore } from '../stores/auth'
+import { pinia } from '../stores'
 
 /**
  * v-permission 指令：基于 permCode 控制 DOM 显隐。
@@ -23,7 +24,7 @@ const permission: Directive<HTMLElement, string | string[]> = {
 }
 
 function apply(el: HTMLElement, binding: DirectiveBinding<string | string[]>) {
-  const authStore = useAuthStore()
+  const authStore = useAuthStore(pinia)
   const ok = authStore.hasPerm(binding.value)
   if (!ok && el.parentNode) {
     el.parentNode.removeChild(el)

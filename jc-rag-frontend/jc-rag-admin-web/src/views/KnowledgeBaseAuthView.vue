@@ -15,11 +15,12 @@ import { ArrowLeft, Close } from '@element-plus/icons-vue'
 
 import { fetchKbAuthDetail, fetchKnowledgeBases, saveKbAuth } from '../api/knowledge'
 import { useAuthStore } from '../stores/auth'
+import { pinia } from '../stores'
 import type { KbAuthDetail, KbAuthUserItem, KbAuthRoleItem } from '../types/knowledge'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
+const authStore = useAuthStore(pinia)
 const currentUsername = computed(() => authStore.user?.username || '')
 const isDeveloper = computed(() => currentUsername.value.toLowerCase() === 'developer')
 

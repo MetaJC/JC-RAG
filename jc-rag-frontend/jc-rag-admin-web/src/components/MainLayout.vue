@@ -2,12 +2,13 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { pinia } from '../stores'
 import type { MenuNode } from '../types/auth'
 import SidebarMenu, { type SidebarMenuItem } from './SidebarMenu.vue'
 
 const router = useRouter()
 const route = useRoute()
-const authStore = useAuthStore()
+const authStore = useAuthStore(pinia)
 
 const COLLAPSED_KEY = 'sidebar-collapsed'
 
