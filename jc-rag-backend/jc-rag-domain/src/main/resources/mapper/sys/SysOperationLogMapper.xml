@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.sys.SysOperationLogMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.sys.SysOperationLog">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="username" property="username"/>
+        <result column="module_name" property="moduleName"/>
+        <result column="operation_type" property="operationType"/>
+        <result column="operation_desc" property="operationDesc"/>
+        <result column="request_uri" property="requestUri"/>
+        <result column="request_method" property="requestMethod"/>
+        <result column="request_ip" property="requestIp"/>
+        <result column="user_agent" property="userAgent"/>
+        <result column="args" property="args"/>
+        <result column="result" property="result"/>
+        <result column="status" property="status"/>
+        <result column="error_msg" property="errorMsg"/>
+        <result column="cost_ms" property="costMs"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <select id="countOperationLogs" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_operation_log
+        <where>
+            <if test="moduleName != null and moduleName != ''">
+                AND module_name = #{moduleName}
+            </if>
+            <if test="operationType != null and operationType != ''">
+                AND operation_type = #{operationType}
+            </if>
+            <if test="username != null and username != ''">
+                AND username = #{username}
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="startTime != null">
+                AND created_at &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND created_at &lt;= #{endTime}
+            </if>
+        </where>
+    </select>
+
+    <sql id="operationLogListColumns">
+        SELECT id, user_id, username, module_name, operation_type, operation_desc,
+               request_uri, request_method, request_ip, user_agent, args, result, status,
+               error_msg, cost_ms, created_at
+        FROM sys_operation_log
+        <where>
+            <if test="moduleName != null and moduleName != ''">
+                AND module_name = #{moduleName}
+            </if>
+            <if test="operationType != null and operationType != ''">
+                AND operation_type = #{operationType}
+            </if>
+            <if test="username != null and username != ''">
+                AND username = #{username}
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+            <if test="startTime != null">
+                AND created_at &gt;= #{startTime}
+            </if>
+            <if test="endTime != null">
+                AND created_at &lt;= #{endTime}
+            </if>
+        </where>
+        ORDER BY id DESC
+    </sql>
+
+    <select id="pageOperationLogs" resultMap="BaseResultMap">
+        <include refid="operationLogListColumns"/>
+    </select>
+
+    <select id="listOperationLogs" resultMap="BaseResultMap">
+        <include refid="operationLogListColumns"/>
+    </select>
+
+</mapper>

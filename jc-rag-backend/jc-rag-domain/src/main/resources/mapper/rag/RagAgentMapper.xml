@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rag.RagAgentMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.rag.RagAgentEntity">
+        <id     column="id"             property="id"/>
+        <result column="agent_name"     property="agentName"/>
+        <result column="agent_key"      property="agentKey"/>
+        <result column="description"    property="description"/>
+        <result column="is_system"      property="isSystem"/>
+        <result column="system_prompt"  property="systemPrompt"/>
+        <result column="content"        property="content"/>
+        <result column="temperature"    property="temperature"/>
+        <result column="max_tokens"     property="maxTokens"/>
+        <result column="status"         property="status"/>
+        <result column="version"        property="version"/>
+        <result column="published_at"   property="publishedAt"/>
+        <result column="created_by"     property="createdBy"/>
+        <result column="created_at"     property="createdAt"/>
+        <result column="updated_at"     property="updatedAt"/>
+    </resultMap>
+
+    <select id="countAgents" resultType="long">
+        SELECT COUNT(*) FROM sys_agents
+        WHERE 1=1
+        <if test="status != null">AND status = #{status}</if>
+        <if test="isSystem != null">AND is_system = #{isSystem}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (agent_name LIKE #{keyword} OR agent_key LIKE #{keyword} OR description LIKE #{keyword})
+        </if>
+    </select>
+
+    <sql id="agentListColumns">
+        SELECT id, agent_name, agent_key, is_system, description,
+               system_prompt, content, temperature, max_tokens,
+               status, version, created_by,
+               published_at, created_at, updated_at
+        FROM sys_agents
+        WHERE 1=1
+        <if test="status != null">AND status = #{status}</if>
+        <if test="isSystem != null">AND is_system = #{isSystem}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (agent_name LIKE #{keyword} OR agent_key LIKE #{keyword} OR description LIKE #{keyword})
+        </if>
+        ORDER BY id DESC
+    </sql>
+
+    <select id="pageAgents" resultMap="BaseResultMap">
+        <include refid="agentListColumns"/>
+    </select>
+
+    <select id="listAgents" resultMap="BaseResultMap">
+        <include refid="agentListColumns"/>
+    </select>
+
+    <select id="getAgent" resultType="java.util.LinkedHashMap">
+        SELECT id, agent_name AS agentName, agent_key AS agentKey, is_system AS isSystem,
+               description,
+               system_prompt AS systemPrompt, content,
+               temperature, max_tokens AS maxTokens,
+               status, version, created_by AS createdBy,
+               published_at AS publishedAt, created_at AS createdAt, updated_at AS updatedAt
+        FROM sys_agents
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertAgent" parameterType="com.jc.rag.domain.entity.rag.RagAgentEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_agents (agent_name, agent_key, is_system, description,
+                                system_prompt, content,
+                                temperature, max_tokens, status, version, created_by)
+        VALUES (#{agentName}, #{agentKey}, #{isSystem}, #{description},
+                #{systemPrompt}, #{content},
+                #{temperature}, #{maxTokens}, #{status}, #{version}, #{createdBy})
+    </insert>
+
+    <update id="updateAgent">
+        UPDATE sys_agents
+        <set>
+            <if test="row['agentName'] != null">agent_name = #{row['agentName']},</if>
+            <if test="row['agentKey'] != null">agent_key = #{row['agentKey']},</if>
+            <if test="row['isSystem'] != null">is_system = #{row['isSystem']},</if>
+            <if test="row['description'] != null">description = #{row['description']},</if>
+            <if test="row['systemPrompt'] != null">system_prompt = #{row['systemPrompt']},</if>
+            <if test="row['content'] != null">content = #{row['content']},</if>
+            <if test="row['temperature'] != null">temperature = #{row['temperature']},</if>
+            <if test="row['maxTokens'] != null">max_tokens = #{row['maxTokens']},</if>
+            <if test="row['status'] != null">status = #{row['status']},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateAgentStatus">
+        UPDATE sys_agents
+        SET status = #{status},
+            version = COALESCE(version, 0) + 1,
+            published_at = CASE WHEN #{status} = 1 THEN NOW() ELSE published_at END,
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteAgent">
+        DELETE FROM sys_agents WHERE id = #{id}
+    </delete>
+
+</mapper>

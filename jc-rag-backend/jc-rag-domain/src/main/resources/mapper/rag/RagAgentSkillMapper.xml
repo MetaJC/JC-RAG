@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rag.RagAgentSkillMapper">
+
+    <insert id="insertBatch">
+        INSERT INTO sys_agent_skills (agent_id, skill_id, sort_order)
+        VALUES
+        <foreach collection="list" item="it" separator=",">
+            (#{it.agentId}, #{it.skillId}, #{it.sortOrder})
+        </foreach>
+    </insert>
+
+    <delete id="deleteByAgentId">
+        DELETE FROM sys_agent_skills WHERE agent_id = #{agentId}
+    </delete>
+
+</mapper>

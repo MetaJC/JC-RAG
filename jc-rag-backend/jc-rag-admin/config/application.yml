@@ -1,0 +1,58 @@
+server:
+  port: 8080
+  servlet:
+    session:
+      timeout: 60m
+      cookie:
+        max-age: 60m
+        name: ADMIN_SESSION
+
+spring:
+  application:
+    name: jc-rag-admin
+  profiles:
+    active: dev
+  servlet:
+    multipart:
+      max-file-size: ${knowledge.upload.max-file-size}
+      max-request-size: ${knowledge.upload.max-request-size}
+  messages:
+    basename: i18n/messages
+    encoding: UTF-8
+    fallback-to-system-locale: false
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    serialization:
+      write-dates-as-timestamps: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+
+app:
+  name: JC RAG Admin Backend
+  version: 0.0.1-SNAPSHOT
+  deployment-mode: offline-ready
+  rbac:
+    default-password: 123456
+    developer-username: developer
+    reserved-user-types:
+      - DEVELOPER
+    sensitive-fields:
+      - password
+      - newPassword
+      - oldPassword
+      - oldPwd
+      - pwd

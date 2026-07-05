@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.sys.SysExceptionLogMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.sys.SysExceptionLog">
+        <id column="id" property="id"/>
+        <result column="trace_id" property="traceId"/>
+        <result column="module_name" property="moduleName"/>
+        <result column="exception_type" property="exceptionType"/>
+        <result column="exception_message" property="exceptionMessage"/>
+        <result column="stack_trace" property="stackTrace"/>
+        <result column="operator_id" property="operatorId"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <sql id="exceptionLogListColumns">
+        SELECT
+            id,
+            trace_id   AS traceId,
+            module_name AS moduleName,
+            exception_type AS exceptionType,
+            exception_message AS exceptionMessage,
+            stack_trace AS stackTrace,
+            operator_id AS operatorId,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+        FROM sys_exception_log
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (exception_type LIKE CONCAT('%', #{keyword}, '%')
+                  OR exception_message LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="moduleName != null and moduleName != ''">
+                AND module_name = #{moduleName}
+            </if>
+        </where>
+        ORDER BY id DESC
+    </sql>
+
+    <select id="pageExceptionLogs" resultType="java.util.LinkedHashMap">
+        <include refid="exceptionLogListColumns"/>
+    </select>
+
+    <select id="listExceptionLogs" resultType="java.util.LinkedHashMap">
+        <include refid="exceptionLogListColumns"/>
+    </select>
+
+    <select id="countExceptionLogs" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_exception_log
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (exception_type LIKE CONCAT('%', #{keyword}, '%')
+                  OR exception_message LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="moduleName != null and moduleName != ''">
+                AND module_name = #{moduleName}
+            </if>
+        </where>
+    </select>
+
+</mapper>

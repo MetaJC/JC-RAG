@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rbac.RbacUserMapper">
+
+    <resultMap id="userWithRoles" type="java.util.LinkedHashMap">
+        <result column="id" property="id" jdbcType="BIGINT"/>
+        <result column="username" property="username" jdbcType="VARCHAR"/>
+        <result column="nickname" property="nickname" jdbcType="VARCHAR"/>
+        <result column="phone" property="phone" jdbcType="VARCHAR"/>
+        <result column="email" property="email" jdbcType="VARCHAR"/>
+        <result column="status" property="status" jdbcType="INTEGER"/>
+        <result column="user_type" property="userType" jdbcType="VARCHAR"/>
+        <result column="last_login_time" property="lastLoginTime" jdbcType="TIMESTAMP"/>
+        <result column="last_login_ip" property="lastLoginIp" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="role_names" property="roleNames" jdbcType="VARCHAR"/>
+        <result column="role_ids" property="roleIds" jdbcType="VARCHAR"/>
+    </resultMap>
+
+    <select id="countUsers" resultType="long">
+        SELECT COUNT(DISTINCT u.id)
+        FROM rbac_user u
+        WHERE u.deleted = 0
+        <if test="excludeDeveloper">
+            AND u.username != 'developer'
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (u.username LIKE #{keyword} OR u.nickname LIKE #{keyword} OR u.phone LIKE #{keyword})
+        </if>
+    </select>
+
+    <sql id="userListColumns">
+        SELECT u.id, u.username, u.nickname, u.phone, u.email, u.status, u.user_type,
+               u.last_login_time, u.last_login_ip, u.created_at,
+               GROUP_CONCAT(r.role_name ORDER BY r.id SEPARATOR ',') AS role_names,
+               GROUP_CONCAT(r.id ORDER BY r.id SEPARATOR ',') AS role_ids
+        FROM rbac_user u
+        LEFT JOIN rbac_user_role ur ON ur.user_id = u.id
+        LEFT JOIN rbac_role r ON r.id = ur.role_id
+        WHERE u.deleted = 0
+        <if test="excludeDeveloper">
+            AND u.username != 'developer'
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (u.username LIKE #{keyword} OR u.nickname LIKE #{keyword} OR u.phone LIKE #{keyword})
+        </if>
+        GROUP BY u.id
+        ORDER BY u.id DESC
+    </sql>
+
+    <select id="pageUsers" resultMap="userWithRoles">
+        <include refid="userListColumns"/>
+    </select>
+
+    <select id="listUsers" resultMap="userWithRoles">
+        <include refid="userListColumns"/>
+    </select>
+
+    <update id="updatePassword">
+        UPDATE rbac_user
+        SET password_hash = #{passwordHash}
+        WHERE id = #{userId}
+    </update>
+
+    <update id="updatePasswordByUsername">
+        UPDATE rbac_user
+        SET password_hash = #{passwordHash}
+        WHERE username = #{username}
+    </update>
+
+    <select id="probeUserTable" resultType="int">
+        SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema = DATABASE() AND table_name = #{tableName}
+    </select>
+
+    <select id="selectAuthInfo" resultType="java.util.LinkedHashMap">
+        SELECT id, username, password_hash, nickname, user_type
+        FROM rbac_user
+        WHERE username = #{username} AND status = 1 AND deleted = 0
+        LIMIT 1
+    </select>
+
+    <select id="selectIdByUsername" resultType="java.lang.Long">
+        SELECT id FROM rbac_user WHERE username = #{username} LIMIT 1
+    </select>
+
+    <select id="selectUsernameById" resultType="java.lang.String">
+        SELECT username FROM rbac_user WHERE id = #{userId} AND deleted = 0 LIMIT 1
+    </select>
+
+    <insert id="insertNormalUser">
+        INSERT INTO rbac_user (username, password_hash, nickname, email, user_type)
+        VALUES (#{username}, #{passwordHash}, #{nickname}, #{email}, 'NORMAL')
+    </insert>
+
+    <update id="markLoginSuccess">
+        UPDATE rbac_user
+        SET login_fail_count = 0, last_login_time = CURRENT_TIMESTAMP
+        WHERE id = #{userId}
+    </update>
+
+    <update id="incrementLoginFail">
+        UPDATE rbac_user
+        SET login_fail_count = login_fail_count + 1
+        WHERE username = #{username}
+    </update>
+
+    <select id="selectLoginFailCount" resultType="java.lang.Integer">
+        SELECT COALESCE(login_fail_count, 0) FROM rbac_user WHERE username = #{username} LIMIT 1
+    </select>
+
+    <select id="selectRoleIdsByUserId" resultType="java.lang.Long">
+        SELECT role_id FROM rbac_user_role WHERE user_id = #{userId}
+    </select>
+
+</mapper>

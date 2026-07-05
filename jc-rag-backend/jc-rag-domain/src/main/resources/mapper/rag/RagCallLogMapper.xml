@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rag.RagCallLogMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.rag.RagCallLog">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="session_id" property="sessionId"/>
+        <result column="query_text" property="queryText"/>
+        <result column="rewritten_query" property="rewrittenQuery"/>
+        <result column="retrieved_chunks" property="retrievedChunks"/>
+        <result column="model_mode" property="modelMode"/>
+        <result column="model_name" property="modelName"/>
+        <result column="prompt_tokens" property="promptTokens"/>
+        <result column="completion_tokens" property="completionTokens"/>
+        <result column="latency_ms" property="latencyMs"/>
+        <result column="success_flag" property="successFlag"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <sql id="ragCallLogListColumns">
+        SELECT
+            r.id,
+            r.user_id   AS userId,
+            r.session_id AS sessionId,
+            u.username  AS userName,
+            u.nickname  AS userNickname,
+            s.session_title AS sessionName,
+            r.query_text AS queryText,
+            r.rewritten_query AS rewrittenQuery,
+            r.retrieved_chunks AS retrievedChunks,
+            r.model_mode AS modelMode,
+            r.model_name AS modelName,
+            r.prompt_tokens AS promptTokens,
+            r.completion_tokens AS completionTokens,
+            r.latency_ms AS latencyMs,
+            ROUND(r.latency_ms / 1000.0, 3) AS latencySec,
+            r.success_flag AS successFlag,
+            r.error_message AS errorMessage,
+            DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt
+        FROM rag_call_log r
+        LEFT JOIN rbac_user u       ON r.user_id    = u.id
+        LEFT JOIN chat_session s   ON r.session_id = s.id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (r.query_text LIKE CONCAT('%', #{keyword}, '%')
+                  OR r.rewritten_query LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="modelName != null and modelName != ''">
+                AND r.model_name = #{modelName}
+            </if>
+            <if test="userName != null and userName != ''">
+                AND (u.username LIKE CONCAT('%', #{userName}, '%')
+                  OR u.nickname LIKE CONCAT('%', #{userName}, '%'))
+            </if>
+        </where>
+        ORDER BY r.id DESC
+    </sql>
+
+    <select id="pageRagCallLogs" resultType="java.util.LinkedHashMap">
+        <include refid="ragCallLogListColumns"/>
+    </select>
+
+    <select id="listRagCallLogs" resultType="java.util.LinkedHashMap">
+        <include refid="ragCallLogListColumns"/>
+    </select>
+
+    <select id="countRagCallLogs" resultType="long">
+        SELECT COUNT(*)
+        FROM rag_call_log r
+        LEFT JOIN rbac_user u       ON r.user_id    = u.id
+        LEFT JOIN chat_session s   ON r.session_id = s.id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (r.query_text LIKE CONCAT('%', #{keyword}, '%')
+                  OR r.rewritten_query LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="modelName != null and modelName != ''">
+                AND r.model_name = #{modelName}
+            </if>
+            <if test="userName != null and userName != ''">
+                AND (u.username LIKE CONCAT('%', #{userName}, '%')
+                  OR u.nickname LIKE CONCAT('%', #{userName}, '%'))
+            </if>
+        </where>
+    </select>
+
+</mapper>

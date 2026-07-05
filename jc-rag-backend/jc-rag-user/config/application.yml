@@ -1,0 +1,36 @@
+server:
+  port: 8082
+  servlet:
+    session:
+      timeout: 60m
+      cookie:
+        max-age: 60m
+        name: USER_SESSION
+
+spring:
+  application:
+    name: jc-rag-user
+  profiles:
+    active: dev
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    serialization:
+      write-dates-as-timestamps: false
+  messages:
+    basename: i18n/messages
+    encoding: UTF-8
+    use-code-as-default-message: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+app:
+  name: JC RAG User Portal
+  version: 0.0.1-SNAPSHOT

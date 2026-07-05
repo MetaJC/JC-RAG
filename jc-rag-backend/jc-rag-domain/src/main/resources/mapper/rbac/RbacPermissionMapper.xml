@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rbac.RbacPermissionMapper">
+
+    <select id="countPermissions" resultType="long">
+        SELECT COUNT(*)
+        FROM rbac_permission
+        WHERE (#{permType} IS NULL OR #{permType} = '' OR perm_type = #{permType})
+        <if test="keyword != null and keyword != ''">
+            AND (perm_name LIKE #{keyword} OR perm_code LIKE #{keyword})
+        </if>
+    </select>
+
+    <sql id="permissionListColumns">
+        SELECT id, perm_code AS permCode, perm_name AS permName, perm_type AS permType,
+               parent_id AS parentId, path, method, status, created_at AS createdAt, updated_at AS updatedAt
+        FROM rbac_permission
+        WHERE (#{permType} IS NULL OR #{permType} = '' OR perm_type = #{permType})
+        <if test="keyword != null and keyword != ''">
+            AND (perm_name LIKE #{keyword} OR perm_code LIKE #{keyword})
+        </if>
+        ORDER BY COALESCE(parent_id, 0), id
+    </sql>
+
+    <select id="pagePermissions" resultType="java.util.LinkedHashMap">
+        <include refid="permissionListColumns"/>
+    </select>
+
+    <select id="listPermissions" resultType="java.util.LinkedHashMap">
+        <include refid="permissionListColumns"/>
+    </select>
+
+    <select id="findPermCodesByUserId" resultType="string">
+        SELECT DISTINCT p.perm_code
+        FROM rbac_user u
+        JOIN rbac_user_role ur ON ur.user_id = u.id
+        JOIN rbac_role_permission rp ON rp.role_id = ur.role_id
+        JOIN rbac_permission p ON p.id = rp.permission_id
+        WHERE u.id = #{userId}
+          AND u.status = 1
+          AND u.deleted = 0
+          AND p.status = 1
+        ORDER BY p.perm_code
+    </select>
+
+    <select id="findPermissionIdsByUserId" resultType="long">
+        SELECT DISTINCT p.id
+        FROM rbac_user u
+        JOIN rbac_user_role ur ON ur.user_id = u.id
+        JOIN rbac_role_permission rp ON rp.role_id = ur.role_id
+        JOIN rbac_permission p ON p.id = rp.permission_id
+        WHERE u.id = #{userId}
+          AND u.status = 1
+          AND u.deleted = 0
+          AND p.status = 1
+    </select>
+
+</mapper>

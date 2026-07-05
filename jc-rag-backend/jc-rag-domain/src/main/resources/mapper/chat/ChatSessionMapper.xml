@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.chat.ChatSessionMapper">
+
+    <select id="countSessions" resultType="long">
+        SELECT COUNT(*) FROM chat_session cs
+        WHERE cs.user_id = #{userId} AND cs.status = 1
+        <if test="keyword != null and keyword != ''">
+            AND cs.session_title LIKE #{keyword}
+        </if>
+    </select>
+
+    <sql id="sessionListColumns">
+        SELECT cs.id, cs.session_title AS sessionTitle, cs.kb_id AS kbId,
+               kb.kb_name AS kbName, cs.is_pinned AS isPinned,
+               cs.created_at AS createdAt, cs.updated_at AS updatedAt
+        FROM chat_session cs
+        LEFT JOIN kb_knowledge_base kb ON kb.id = cs.kb_id
+        WHERE cs.user_id = #{userId} AND cs.status = 1
+        <if test="keyword != null and keyword != ''">
+            AND cs.session_title LIKE #{keyword}
+        </if>
+        ORDER BY cs.is_pinned DESC, cs.updated_at DESC
+    </sql>
+
+    <select id="pageSessions" resultType="java.util.LinkedHashMap">
+        <include refid="sessionListColumns"/>
+    </select>
+
+    <select id="listSessions" resultType="java.util.LinkedHashMap">
+        <include refid="sessionListColumns"/>
+    </select>
+
+    <select id="countOwned" resultType="int">
+        SELECT COUNT(*) FROM chat_session
+        WHERE id = #{sessionId} AND user_id = #{userId} AND status = 1
+    </select>
+
+    <select id="selectByOwner" resultType="com.jc.rag.domain.entity.chat.ChatSessionEntity">
+        SELECT id, user_id, session_title, session_mode, model_mode, model_name,
+               kb_id, is_pinned, status, created_at, updated_at
+        FROM chat_session
+        WHERE id = #{sessionId} AND user_id = #{userId} AND status = 1
+    </select>
+
+    <update id="touch">
+        UPDATE chat_session SET updated_at = CURRENT_TIMESTAMP WHERE id = #{sessionId}
+    </update>
+
+    <update id="close">
+        UPDATE chat_session SET status = 0, updated_at = CURRENT_TIMESTAMP WHERE id = #{sessionId}
+    </update>
+
+    <select id="selectDetailById" resultType="java.util.LinkedHashMap">
+        SELECT cs.id, cs.user_id AS userId, cs.session_title AS sessionTitle,
+               cs.session_mode AS sessionMode, cs.model_mode AS modelMode, cs.model_name AS modelName,
+               cs.kb_id AS kbId, kb.kb_name AS kbName,
+               cs.is_pinned AS isPinned, cs.status,
+               cs.created_at AS createdAt, cs.updated_at AS updatedAt
+        FROM chat_session cs
+        LEFT JOIN kb_knowledge_base kb ON kb.id = cs.kb_id
+        WHERE cs.id = #{id}
+    </select>
+
+    <update id="updateTitle">
+        UPDATE chat_session SET session_title = #{title}, updated_at = CURRENT_TIMESTAMP WHERE id = #{sessionId}
+    </update>
+
+    <update id="updatePinned">
+        UPDATE chat_session SET is_pinned = #{isPinned}, updated_at = CURRENT_TIMESTAMP WHERE id = #{sessionId}
+    </update>
+
+    <update id="updateTitleIfBlank">
+        UPDATE chat_session
+        SET session_title = #{title}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{sessionId}
+          AND status = 1
+          AND (session_title IS NULL OR TRIM(session_title) = '' OR session_title = '新会话')
+    </update>
+
+    <delete id="deleteByCreatedAtBefore">
+        DELETE FROM chat_session WHERE created_at &lt;= #{cutoff}
+    </delete>
+
+</mapper>

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rag.RagPromptMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.rag.RagPromptEntity">
+        <id     column="id"             property="id"/>
+        <result column="prompt_key"     property="promptKey"/>
+        <result column="prompt_name"    property="promptName"/>
+        <result column="prompt_content" property="promptContent"/>
+        <result column="scope"          property="scope"/>
+        <result column="scope_id"       property="scopeId"/>
+        <result column="version"        property="version"/>
+        <result column="status"         property="status"/>
+        <result column="description"    property="description"/>
+        <result column="created_by"     property="createdBy"/>
+        <result column="created_at"     property="createdAt"/>
+        <result column="updated_at"     property="updatedAt"/>
+    </resultMap>
+
+    <select id="countPrompts" resultType="long">
+        SELECT COUNT(*) FROM sys_prompts
+        WHERE 1=1
+        <if test="scope != null and scope != ''">AND scope = #{scope}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (prompt_name LIKE #{keyword} OR prompt_key LIKE #{keyword} OR prompt_content LIKE #{keyword})
+        </if>
+    </select>
+
+    <sql id="promptListColumns">
+        SELECT id, prompt_key AS promptKey, prompt_name AS promptName,
+               prompt_content AS promptContent, scope, scope_id AS scopeId,
+               status, description, created_by AS createdBy,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM sys_prompts
+        WHERE 1=1
+        <if test="scope != null and scope != ''">AND scope = #{scope}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (prompt_name LIKE #{keyword} OR prompt_key LIKE #{keyword} OR prompt_content LIKE #{keyword})
+        </if>
+        ORDER BY scope, prompt_key
+    </sql>
+
+    <select id="pagePrompts" resultMap="BaseResultMap">
+        <include refid="promptListColumns"/>
+    </select>
+
+    <select id="listPrompts" resultMap="BaseResultMap">
+        <include refid="promptListColumns"/>
+    </select>
+
+    <select id="getPrompt" resultType="java.util.LinkedHashMap">
+        SELECT id, prompt_key AS promptKey, prompt_name AS promptName,
+               prompt_content AS promptContent, scope, scope_id AS scopeId,
+               status, description, created_by AS createdBy,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM sys_prompts
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertPrompt" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_prompts (prompt_key, prompt_name, prompt_content, scope, scope_id,
+                                 version, status, description, created_by)
+        VALUES (#{row.promptKey}, #{row.promptName}, #{row.promptContent}, #{row.scope}, #{row.scopeId},
+                #{row.version}, #{row.status}, #{row.description}, #{row.createdBy})
+    </insert>
+
+    <update id="updatePrompt">
+        UPDATE sys_prompts
+        <set>
+            <if test="row.promptKey != null">prompt_key = #{row.promptKey},</if>
+            <if test="row.promptName != null">prompt_name = #{row.promptName},</if>
+            <if test="row.promptContent != null">prompt_content = #{row.promptContent},</if>
+            <if test="row.scope != null">scope = #{row.scope},</if>
+            <if test="row.scopeId != null">scope_id = #{row.scopeId},</if>
+            <if test="row.version != null">version = #{row.version},</if>
+            <if test="row.status != null">status = #{row.status},</if>
+            <if test="row.description != null">description = #{row.description},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deletePrompt">
+        DELETE FROM sys_prompts WHERE id = #{id}
+    </delete>
+
+</mapper>

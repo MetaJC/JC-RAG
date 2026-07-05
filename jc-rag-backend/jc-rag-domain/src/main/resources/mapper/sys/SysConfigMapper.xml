@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.sys.SysConfigMapper">
+
+    <select id="listAllKeyValue" resultType="java.util.HashMap">
+        SELECT config_key AS configKey, config_value AS configValue
+        FROM sys_config
+    </select>
+
+    <select id="selectStringValue" resultType="string">
+        SELECT config_value FROM sys_config WHERE config_key = #{configKey}
+    </select>
+
+    <insert id="upsertConfig">
+        INSERT INTO sys_config (config_group, config_key, config_value, value_type, encrypted, remark)
+        VALUES (#{configGroup}, #{configKey}, #{configValue}, #{valueType}, #{encrypted}, #{remark})
+        ON DUPLICATE KEY UPDATE
+          config_value = VALUES(config_value),
+          value_type = VALUES(value_type),
+          encrypted = VALUES(encrypted),
+          remark = VALUES(remark),
+          updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+</mapper>

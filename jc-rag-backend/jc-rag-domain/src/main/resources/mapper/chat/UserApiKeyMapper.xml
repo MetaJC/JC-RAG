@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.chat.UserApiKeyMapper">
+
+    <select id="listUserApiKeys" resultType="java.util.LinkedHashMap">
+        SELECT
+            id, user_id AS userId, provider, base_url AS baseUrl, model_name AS modelName,
+            is_active AS isActive,
+            DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt
+        FROM user_api_keys
+        WHERE user_id = #{userId}
+        <if test="likeKeyword != null and likeKeyword != ''">
+            AND (provider LIKE #{likeKeyword} OR model_name LIKE #{likeKeyword})
+        </if>
+        ORDER BY provider
+    </select>
+
+    <select id="getActiveApiKey" resultType="java.util.LinkedHashMap">
+        SELECT
+            id, user_id AS userId, provider, base_url AS baseUrl, model_name AS modelName,
+            is_active AS isActive, created_at AS createdAt
+        FROM user_api_keys
+        WHERE user_id = #{userId} AND provider = #{provider} AND is_active = 1
+        LIMIT 1
+    </select>
+
+    <select id="findActiveIdsByUserId" resultType="java.lang.Long">
+        SELECT id FROM user_api_keys WHERE user_id = #{userId} AND is_active = 1
+    </select>
+
+    <select id="findByUserAndProvider" resultType="java.util.LinkedHashMap">
+        SELECT id FROM user_api_keys WHERE user_id = #{userId} AND provider = #{provider}
+    </select>
+
+    <update id="updateApiKey">
+        UPDATE user_api_keys
+        SET base_url = #{baseUrl}, api_key = #{apiKey}, model_name = #{modelName}, is_active = 1
+        WHERE id = #{id}
+    </update>
+
+    <insert id="insertApiKey" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_api_keys (user_id, provider, base_url, api_key, model_name, is_active)
+        VALUES (#{userId}, #{provider}, #{baseUrl}, #{apiKey}, #{modelName}, 1)
+    </insert>
+
+    <update id="toggleActive">
+        UPDATE user_api_keys SET is_active = #{active} WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM user_api_keys WHERE id = #{id}
+    </delete>
+
+    <select id="getById" resultType="java.util.LinkedHashMap">
+        SELECT
+            id, user_id AS userId, provider, base_url AS baseUrl, model_name AS modelName,
+            is_active AS isActive, created_at AS createdAt
+        FROM user_api_keys
+        WHERE id = #{id}
+    </select>
+
+</mapper>

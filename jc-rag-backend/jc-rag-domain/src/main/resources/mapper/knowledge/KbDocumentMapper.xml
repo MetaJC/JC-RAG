@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.knowledge.KbDocumentMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.knowledge.KbDocumentEntity">
+        <id column="id" property="id"/>
+        <result column="kb_id" property="kbId"/>
+        <result column="file_name" property="fileName"/>
+        <result column="file_ext" property="fileExt"/>
+        <result column="file_size" property="fileSize"/>
+        <result column="content_type" property="contentType"/>
+        <result column="minio_bucket" property="minioBucket"/>
+        <result column="minio_object_name" property="minioObjectName"/>
+        <result column="file_hash" property="fileHash"/>
+        <result column="version_no" property="versionNo"/>
+        <result column="source_path" property="sourcePath"/>
+        <result column="doc_type" property="docType"/>
+        <result column="security_level" property="securityLevel"/>
+        <result column="parse_status" property="parseStatus"/>
+        <result column="parse_message" property="parseMessage"/>
+        <result column="page_count" property="pageCount"/>
+        <result column="chunk_count" property="chunkCount"/>
+        <result column="uploaded_by" property="uploadedBy"/>
+        <result column="uploaded_at" property="uploadedAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="deleted" property="deleted"/>
+    </resultMap>
+
+    <select id="selectFileInfo" resultType="java.util.LinkedHashMap">
+        SELECT id, file_name, file_ext, content_type, minio_bucket, minio_object_name
+        FROM kb_document
+        WHERE id = #{id} AND deleted = 0
+    </select>
+
+    <select id="selectForReprocess" resultType="java.util.LinkedHashMap">
+        SELECT id, kb_id, file_name, file_ext, content_type, version_no, doc_type, security_level,
+               minio_bucket, minio_object_name, parse_status, deleted
+        FROM kb_document
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectParseProgress" resultType="java.util.LinkedHashMap">
+        SELECT id, file_name, file_ext, file_size, parse_status, parse_message,
+               chunk_count, page_count, updated_at
+        FROM kb_document WHERE id = #{id}
+    </select>
+
+    <select id="selectDocSummary" resultType="java.util.LinkedHashMap">
+        SELECT id, file_name, file_ext, file_size, content_type, version_no, doc_type,
+               security_level, parse_status, parse_message, chunk_count, page_count,
+               uploaded_at, updated_at
+        FROM kb_document WHERE id = #{id}
+    </select>
+
+    <select id="listDirtyParseMessages" resultType="java.util.LinkedHashMap">
+        SELECT id, parse_message
+        FROM kb_document
+        WHERE deleted = 0 AND parse_message LIKE '{%'
+    </select>
+
+    <update id="updateParseMessage">
+        UPDATE kb_document SET parse_message = #{parseMessage} WHERE id = #{id}
+    </update>
+
+    <insert id="insertDoc" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO kb_document
+            (kb_id, file_name, file_ext, file_size, content_type, minio_bucket, minio_object_name,
+             file_hash, version_no, source_path, doc_type, security_level, parse_status,
+             parse_message, page_count, chunk_count, uploaded_by, deleted)
+        VALUES
+            (#{kbId}, #{fileName}, #{fileExt}, #{fileSize}, #{contentType}, #{minioBucket}, #{minioObjectName},
+             #{fileHash}, #{versionNo}, #{sourcePath}, #{docType}, #{securityLevel}, #{parseStatus},
+             #{parseMessage}, #{pageCount}, #{chunkCount}, #{uploadedBy}, #{deleted})
+    </insert>
+
+    <update id="markDeleted">
+        UPDATE kb_document SET deleted = 1, parse_status = 'DELETED' WHERE id = #{id}
+    </update>
+
+    <update id="markDeletedByKbId">
+        UPDATE kb_document SET deleted = 1, parse_status = 'DELETED' WHERE kb_id = #{kbId}
+    </update>
+
+    <update id="updateFileName">
+        UPDATE kb_document SET file_name = #{fileName} WHERE id = #{id}
+    </update>
+
+    <update id="updateParseState">
+        UPDATE kb_document
+        SET parse_status = #{status},
+            parse_message = #{message},
+            chunk_count = #{chunkCount},
+            page_count = #{pageCount},
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+    <update id="markRunning">
+        UPDATE kb_document
+        SET parse_status = 'PENDING',
+            parse_message = '已加入重处理队列',
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND parse_status = 'PROCESSING'
+    </update>
+
+    <update id="claimForReprocess">
+        UPDATE kb_document
+        SET parse_status = 'PROCESSING',
+            parse_message = '已加入后台重建队列，正在准备解析',
+            page_count = 0,
+            chunk_count = 0,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND deleted = 0 AND parse_status NOT IN ('PENDING','PROCESSING')
+    </update>
+
+    <update id="forceStopIfProcessing">
+        UPDATE kb_document
+        SET parse_status = 'FAILED', parse_message = #{message}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND parse_status = 'PROCESSING'
+    </update>
+
+    <select id="selectParseStatus" resultType="string">
+        SELECT parse_status FROM kb_document WHERE id = #{id}
+    </select>
+
+    <select id="listByKbId" resultMap="BaseResultMap">
+        SELECT id, kb_id, file_name, file_ext, file_size, content_type, minio_bucket, minio_object_name,
+               file_hash, version_no, source_path, doc_type, security_level, parse_status,
+               parse_message, page_count, chunk_count, uploaded_by, uploaded_at, updated_at, deleted
+        FROM kb_document
+        WHERE kb_id = #{kbId}
+        <if test="!includeDeleted">AND deleted = 0</if>
+        ORDER BY id DESC
+    </select>
+
+    <select id="listMinioInfoByKbId" resultType="java.util.LinkedHashMap">
+        SELECT id, minio_bucket, minio_object_name
+        FROM kb_document
+        WHERE kb_id = #{kbId} AND deleted = 0
+    </select>
+
+    <select id="pageList" resultMap="BaseResultMap">
+        SELECT id, kb_id, file_name, file_ext, file_size, content_type, version_no, doc_type,
+               security_level, parse_status, parse_message, page_count, chunk_count,
+               uploaded_at, updated_at
+        FROM kb_document
+        <where>
+            kb_id = #{kbId} AND deleted = 0
+            <if test="keyword != null and keyword != ''">
+                AND file_name LIKE #{keyword}
+            </if>
+            <if test="parseStatus != null and parseStatus != ''">
+                AND parse_status = #{parseStatus}
+            </if>
+        </where>
+        ORDER BY id DESC
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(1) FROM kb_document
+        <where>
+            kb_id = #{kbId} AND deleted = 0
+            <if test="keyword != null and keyword != ''">
+                AND file_name LIKE #{keyword}
+            </if>
+            <if test="parseStatus != null and parseStatus != ''">
+                AND parse_status = #{parseStatus}
+            </if>
+        </where>
+    </select>
+
+</mapper>

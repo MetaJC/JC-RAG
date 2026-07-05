@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.sys.RoleQuotaLimitMapper">
+
+    <select id="listAll" resultType="java.util.LinkedHashMap">
+        SELECT rql.id, rql.role_id AS roleId, rql.quota_per_day AS quotaPerDay,
+               rql.tokens_per_q AS tokensPerQ, rql.tokens_per_day AS tokensPerDay,
+               rql.can_configure_api_key AS canConfigureApiKey,
+               r.role_name AS roleName, r.role_code AS roleCode
+        FROM role_quota_limits rql
+        INNER JOIN rbac_role r ON r.id = rql.role_id
+    </select>
+
+    <insert id="upsert">
+        INSERT INTO role_quota_limits
+            (role_id, quota_per_day, tokens_per_q, tokens_per_day, can_configure_api_key)
+        VALUES
+            (#{roleId}, #{quotaPerDay}, #{tokensPerQ}, #{tokensPerDay}, #{canConfigureApiKey})
+        ON DUPLICATE KEY UPDATE
+            quota_per_day = VALUES(quota_per_day),
+            tokens_per_q = VALUES(tokens_per_q),
+            tokens_per_day = VALUES(tokens_per_day),
+            can_configure_api_key = VALUES(can_configure_api_key)
+    </insert>
+
+</mapper>

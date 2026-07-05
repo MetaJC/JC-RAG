@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.knowledge.KbKnowledgeBaseMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.knowledge.KbKnowledgeBaseEntity">
+        <id column="id" property="id"/>
+        <result column="kb_code" property="kbCode"/>
+        <result column="kb_name" property="kbName"/>
+        <result column="kb_desc" property="kbDesc"/>
+        <result column="visibility_scope" property="visibilityScope"/>
+        <result column="client_selectable" property="clientSelectable"/>
+        <result column="owner_user_id" property="ownerUserId"/>
+        <result column="status" property="status"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="selectActiveById" resultMap="BaseResultMap">
+        SELECT id, kb_code, kb_name, kb_desc, visibility_scope, client_selectable, owner_user_id, status, created_at, updated_at
+        FROM kb_knowledge_base
+        WHERE id = #{id} AND status = 1
+    </select>
+
+    <select id="countByCode" resultType="int">
+        SELECT COUNT(1) FROM kb_knowledge_base
+        WHERE kb_code = #{kbCode}
+        <if test="excludeId != null">AND id != #{excludeId}</if>
+    </select>
+
+    <insert id="insertKb" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO kb_knowledge_base
+            (kb_code, kb_name, kb_desc, visibility_scope, client_selectable, owner_user_id, status)
+        VALUES
+            (#{kbCode}, #{kbName}, #{kbDesc}, #{visibilityScope}, #{clientSelectable}, #{ownerUserId}, 1)
+    </insert>
+
+    <update id="updateBasicInfo">
+        UPDATE kb_knowledge_base
+        SET kb_name = #{kbName}, kb_desc = #{kbDesc}, visibility_scope = #{visibilityScope}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateClientSelectable">
+        UPDATE kb_knowledge_base
+        SET client_selectable = #{clientSelectable}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateVisibilityScope">
+        UPDATE kb_knowledge_base
+        SET visibility_scope = #{visibilityScope}
+        WHERE id = #{id}
+    </update>
+
+    <update id="disableById">
+        UPDATE kb_knowledge_base SET status = 0 WHERE id = #{id}
+    </update>
+
+    <select id="pageList" resultMap="BaseResultMap">
+        SELECT id, kb_code, kb_name, kb_desc, visibility_scope, client_selectable, owner_user_id, status, created_at, updated_at
+        FROM kb_knowledge_base
+        <where>
+            status = 1
+            <if test="keyword != null and keyword != ''">
+                AND (kb_code LIKE #{keyword} OR kb_name LIKE #{keyword} OR kb_desc LIKE #{keyword})
+            </if>
+        </where>
+        ORDER BY id DESC
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(1) FROM kb_knowledge_base
+        <where>
+            status = 1
+            <if test="keyword != null and keyword != ''">
+                AND (kb_code LIKE #{keyword} OR kb_name LIKE #{keyword} OR kb_desc LIKE #{keyword})
+            </if>
+        </where>
+    </select>
+
+    <select id="listActiveWithDefault" resultType="java.util.LinkedHashMap">
+        SELECT id,
+               kb_code AS kbCode,
+               kb_name AS kbName,
+               kb_desc AS kbDesc,
+               CASE WHEN #{defaultKbId} IS NOT NULL AND id = #{defaultKbId} THEN 1 ELSE 0 END AS isDefault
+        FROM kb_knowledge_base
+        WHERE status = 1
+        ORDER BY CASE WHEN #{defaultKbId} IS NOT NULL AND id = #{defaultKbId} THEN 0 ELSE 1 END, id
+    </select>
+
+    <select id="listPublicSelectable" resultMap="BaseResultMap">
+        SELECT id, kb_code, kb_name, kb_desc, visibility_scope, client_selectable, owner_user_id, status, created_at, updated_at
+        FROM kb_knowledge_base
+        WHERE status = 1
+          AND visibility_scope = 'PUBLIC'
+          AND client_selectable = 1
+        ORDER BY id
+    </select>
+
+    <select id="selectFirstActiveId" resultType="long">
+        SELECT id FROM kb_knowledge_base WHERE status = 1 ORDER BY id LIMIT 1
+    </select>
+
+</mapper>

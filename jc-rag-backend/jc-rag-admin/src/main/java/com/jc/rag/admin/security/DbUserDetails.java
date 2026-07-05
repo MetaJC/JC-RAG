@@ -1,0 +1,107 @@
+package com.jc.rag.admin.security;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * 业务用户身份信息。
+ * <p>authorities = [userType, ROLE_userType, ...permCodes]；
+ * developer 用户额外追加 ADMIN / BYPASS_AUTH，用于 SecurityFilterChain 路由级粗粒度放行。
+ * <p>登录时由 {@link DbUserDetailsService} 一次性加载 user → role → permission 全部 permCode，
+ * 运行时由 {@code PermissionInterceptor} 做 permCode 级别的细粒度鉴权。
+ *
+ * @author JC
+ */
+public class DbUserDetails implements UserDetails {
+
+    private final Long userId;
+    private final String username;
+    private final String passwordHash;
+    private final String nickname;
+    private final String userType;
+    private final List<String> permCodes;
+
+    public DbUserDetails(Long userId, String username, String passwordHash,
+                         String nickname, String userType, List<String> permCodes) {
+        this.userId = userId;
+        this.username = username;
+        this.passwordHash = passwordHash;
+        this.nickname = nickname;
+        this.userType = userType;
+        this.permCodes = permCodes == null ? Collections.emptyList() : permCodes;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public String getNickname() {
+        return nickname;
+    }
+
+    public String getUserType() {
+        return userType;
+    }
+
+    /** 当前用户拥有的 permCode 集合（已去重） */
+    public List<String> getPermCodes() {
+        return permCodes;
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        List<GrantedAuthority> authorities = new ArrayList<>();
+        // 1) 业务身份（userType 自身 + ROLE_ 前缀）
+        authorities.add(new SimpleGrantedAuthority(userType));
+        authorities.add(new SimpleGrantedAuthority("ROLE_" + userType));
+        // 2) developer 兜底：SecurityConfig.hasAnyAuthority 走 ADMIN 通道；BYPASS_AUTH 供拦截器识别跳过
+        if ("DEVELOPER".equalsIgnoreCase(userType)) {
+            authorities.add(new SimpleGrantedAuthority("ADMIN"));
+            authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+            authorities.add(new SimpleGrantedAuthority("BYPASS_AUTH"));
+        }
+        // 3) 业务 permCode（运行时细粒度鉴权）
+        for (String code : permCodes) {
+            if (code != null && !code.isEmpty()) {
+                authorities.add(new SimpleGrantedAuthority(code));
+            }
+        }
+        return authorities;
+    }
+
+    @Override
+    public String getPassword() {
+        return passwordHash;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}

@@ -1,0 +1,90 @@
+app:
+  name: jc-rag-rag-service
+  version: 0.0.1-SNAPSHOT
+  host: 0.0.0.0
+  port: 8001
+
+embedding:
+  model_path: D:\models\embedding\bge-large-zh-v1.5
+  device: auto
+  dims: 1024
+  batch_size: 32
+  normalize_embeddings: true
+  lm_studio_url: http://127.0.0.1:1234
+
+retrieval:
+  top_k: 5
+  top_n: 20
+  similarity_threshold: 0.6
+
+chunk:
+  size: 700
+  overlap: 120
+
+history:
+  rounds: 3
+
+ocr:
+  enabled: true
+  pdf_fallback: true
+  render_scale: 2.0
+  text_score: 0.45
+
+elasticsearch:
+  url: http://127.0.0.1:9200
+  index_name: jc_rag_chunks
+  memory_index_name: jc_chat_memory   # L2 长期事实向量索引 (独立于 KAG 索引, 避免污染检索)
+
+memory:
+  enabled: true                       # L2 总开关 (可在偏好设置中关闭)
+  extract_top_k: 5                    # 每轮 LLM 最多提取条数
+  recall_top_k: 5                     # 每轮 LLM 召回条数
+  recall_similarity_threshold: 0.6    # 召回相似度阈值
+  dedup_similarity_threshold: 0.9     # 同 category 去重阈值 (> 触发 update 而非 add)
+  max_per_user: 500                   # 单用户最大 fact 数 (超过按 last_used 淘汰最旧)
+  categories:                         # 事实分类枚举 (LLM 提取时强约束)
+    - tech_stack
+    - career
+    - project
+    - preference
+    - goal
+    - other
+  profile:                            # L3 跨会话画像 (从 L2 聚合提炼)
+    enabled: true
+    max_skills: 20
+    max_goals: 10
+
+providers:
+  active_mode: offline
+  defaults:
+    temperature: 0.3
+    top_p: 0.8
+    max_tokens: 1024
+    stream: true
+  offline:
+    provider: ollama
+    ollama:
+      # 强制使用 127.0.0.1（避免 httpx 0.28 + httpcore 1.0 在 Windows 上对 localhost
+      # 的 IPv6 解析引发偶发 502）
+      base_url: http://127.0.0.1:11434
+      chat_path: /api/chat
+      tags_path: /api/tags
+      model_name: qwen2.5:1.5b
+  online:
+    provider: openai-compatible
+    base_url: https://api.example.com
+    chat_path: /v1/chat/completions
+    api_key: ""
+    model_name: gpt-4o-mini
+
+services:
+  springboot_base_url: http://127.0.0.1:8080
+
+storage:
+  minio:
+    endpoint: http://localhost:9000
+    access_key: minioadmin
+    secret_key: minioadmin
+    secure: false
+    bucket:
+      documents: jc-rag-docs

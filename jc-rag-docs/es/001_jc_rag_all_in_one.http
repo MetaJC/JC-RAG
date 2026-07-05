@@ -1,0 +1,107 @@
+### ============================================================
+### JC RAG 智能知识库系统
+### Elasticsearch 一体化初始化脚本
+### 作用：
+### 1. 创建主文档分块向量索引
+### 2. 创建会话记忆辅助索引
+### 说明：
+### - `jc_rag_chunks` 为必建索引
+### - `jc_chat_memory` 为可选索引
+### - 执行前请确认 ES 已启动：http://localhost:9200
+### 变更记录：
+### - 2026-06-17: 向量字段名 embedding_vector（与业务代码 RAG 入库逻辑一致），
+###   新增 chunk_text_ws 字段以保留历史数据；沿用原 hnsw 索引参数；
+###   若库内已存在该索引，执行 PUT 会报 resource_already_exists_exception，忽略即可
+### ============================================================
+
+### 1. 创建主索引：文档分块向量索引
+### 用途：
+### - 存储文档分块文本
+### - 存储元数据
+### - 存储 embedding 向量
+PUT http://localhost:9200/jc_rag_chunks
+Content-Type: application/json
+
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "analysis": {
+      "analyzer": {
+        "default_text_analyzer": {
+          "type": "standard"
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "chunk_id":          { "type": "keyword" },
+      "document_id":       { "type": "keyword" },
+      "kb_id":             { "type": "keyword" },
+      "file_name": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "doc_type":          { "type": "keyword" },
+      "security_level":    { "type": "keyword" },
+      "section_title": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "page_no":           { "type": "integer" },
+      "chunk_text":        { "type": "text" },
+      "chunk_text_keyword": {
+        "type": "keyword",
+        "ignore_above": 8191
+      },
+      "chunk_text_ws":     { "type": "text" },
+      "version_no":        { "type": "integer" },
+      "created_at":        { "type": "date" },
+      "embedding_vector": {
+        "type": "dense_vector",
+        "dims": 1024,
+        "index": true,
+        "similarity": "cosine",
+        "index_options": {
+          "type": "hnsw",
+          "m": 16,
+          "ef_construction": 64
+        }
+      }
+    }
+  }
+}
+
+### 2. 创建可选索引：会话记忆辅助索引
+### 用途：
+### - 存储会话摘要
+### - 为多轮上下文增强提供可选能力
+PUT http://localhost:9200/jc_chat_memory
+Content-Type: application/json
+
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "memory_id": { "type": "keyword" },
+      "session_id": { "type": "keyword" },
+      "user_id": { "type": "keyword" },
+      "summary_text": { "type": "text" },
+      "created_at": { "type": "date" },
+      "embedding": {
+        "type": "dense_vector",
+        "dims": 1024,
+        "index": true,
+        "similarity": "cosine"
+      }
+    }
+  }
+}

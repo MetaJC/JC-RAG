@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.knowledge.KbRoleAuthMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.knowledge.KbRoleAuthEntity">
+        <id column="id" property="id"/>
+        <result column="kb_id" property="kbId"/>
+        <result column="role_id" property="roleId"/>
+        <result column="perm_level" property="permLevel"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <select id="listByKbId" resultMap="BaseResultMap">
+        SELECT id, kb_id, role_id, perm_level, created_at, updated_at
+        FROM kb_role_auth
+        WHERE kb_id = #{kbId}
+    </select>
+
+    <select id="selectByKbAndRole" resultMap="BaseResultMap">
+        SELECT id, kb_id, role_id, perm_level, created_at, updated_at
+        FROM kb_role_auth
+        WHERE kb_id = #{kbId} AND role_id = #{roleId}
+        LIMIT 1
+    </select>
+
+    <delete id="deleteByKbId">
+        DELETE FROM kb_role_auth WHERE kb_id = #{kbId}
+    </delete>
+
+    <insert id="batchUpsert">
+        INSERT INTO kb_role_auth (kb_id, role_id, perm_level)
+        VALUES
+        <foreach collection="list" item="e" separator=",">
+            (#{e.kbId}, #{e.roleId}, #{e.permLevel})
+        </foreach>
+        ON DUPLICATE KEY UPDATE perm_level = VALUES(perm_level), updated_at = CURRENT_TIMESTAMP
+    </insert>
+
+    <select id="listByKbAndRoles" resultMap="BaseResultMap">
+        SELECT id, kb_id, role_id, perm_level, created_at, updated_at
+        FROM kb_role_auth
+        WHERE kb_id = #{kbId}
+        <if test="roleIds != null and roleIds.size() > 0">
+            AND role_id IN
+            <foreach collection="roleIds" item="rid" open="(" separator="," close=")">
+                #{rid}
+            </foreach>
+        </if>
+    </select>
+
+</mapper>

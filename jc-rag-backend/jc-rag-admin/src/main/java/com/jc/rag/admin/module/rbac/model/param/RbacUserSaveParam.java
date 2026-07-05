@@ -1,0 +1,98 @@
+package com.jc.rag.admin.module.rbac.model.param;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+
+import java.util.List;
+
+public class RbacUserSaveParam {
+
+    @NotBlank(message = "用户名不能为空")
+    private String username;
+
+    @NotBlank(message = "昵称不能为空")
+    private String nickname;
+
+    private String phone;
+
+    private String email;
+
+    @NotBlank(message = "用户类型不能为空")
+    private String userType;
+
+    @NotNull
+    private Integer status;
+
+    private String password;
+
+    /**
+     * 角色 ID 列表。
+     * 允许为空（新建用户不强制必须分配角色，避免误操作被校验拦截）。
+     */
+    private List<Long> roleIds;
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getNickname() {
+        return nickname;
+    }
+
+    public void setNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getUserType() {
+        return userType;
+    }
+
+    public void setUserType(String userType) {
+        this.userType = userType;
+    }
+
+    public Integer getStatus() {
+        return status;
+    }
+
+    public void setStatus(Integer status) {
+        this.status = status;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public List<Long> getRoleIds() {
+        return roleIds;
+    }
+
+    public void setRoleIds(List<Long> roleIds) {
+        this.roleIds = roleIds;
+    }
+}

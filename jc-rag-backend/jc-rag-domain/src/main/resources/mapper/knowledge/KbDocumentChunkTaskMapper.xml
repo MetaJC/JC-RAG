@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.knowledge.KbDocumentChunkTaskMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.knowledge.KbDocumentChunkTaskEntity">
+        <id column="id" property="id"/>
+        <result column="document_id" property="documentId"/>
+        <result column="task_type" property="taskType"/>
+        <result column="task_status" property="taskStatus"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="started_at" property="startedAt"/>
+        <result column="ended_at" property="endedAt"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <insert id="insertInitial">
+        INSERT INTO kb_document_chunk_task (document_id, task_type, task_status, retry_count)
+        VALUES (#{documentId}, #{taskType}, #{taskStatus}, 0)
+    </insert>
+
+    <update id="resetForReprocess">
+        UPDATE kb_document_chunk_task
+        SET task_type = #{taskType},
+            task_status = #{taskStatus},
+            retry_count = retry_count + 1,
+            started_at = NULL,
+            ended_at = NULL,
+            error_message = NULL
+        WHERE document_id = #{documentId}
+    </update>
+
+    <update id="markRunning">
+        UPDATE kb_document_chunk_task
+        SET task_status = 'PROCESSING',
+            started_at = CURRENT_TIMESTAMP,
+            ended_at = NULL,
+            error_message = NULL
+        WHERE document_id = #{documentId}
+    </update>
+
+    <update id="complete">
+        UPDATE kb_document_chunk_task
+        SET task_status = #{status},
+            ended_at = CURRENT_TIMESTAMP,
+            error_message = #{errorMessage}
+        WHERE document_id = #{documentId}
+    </update>
+
+    <select id="selectTaskStatus" resultType="string">
+        SELECT task_status FROM kb_document_chunk_task WHERE document_id = #{documentId}
+    </select>
+
+</mapper>

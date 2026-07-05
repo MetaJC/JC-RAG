@@ -1,0 +1,28 @@
+# =============================================================================
+# jc-rag-admin 开源版 Profile
+# =============================================================================
+# 启动方式:
+#   mvn -pl backend-java/jc-rag-admin spring-boot:run -Dspring-boot.run.profiles=oss
+#   java -jar jc-rag-admin.jar --spring.profiles.active=oss
+# =============================================================================
+
+jc-rag:
+  edition: oss
+  # 开源版标识 - 用于前端展示「社区版」水印
+  edition-label: Community Edition
+
+spring:
+  config:
+    activate:
+      on-profile: oss
+
+# 开源版专属: 关闭高级功能菜单 (前端根据 edition 字段隐藏)
+feature:
+  pro:
+    enabled: false
+    menu-visible: false
+    upgrade-tip: "此功能为商业版专属, 请升级到 JC RAG Pro 商业版"
+
+logging:
+  level:
+    com.jc.rag.pro: OFF

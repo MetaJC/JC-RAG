@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rag.RagSkillMapper">
+
+    <resultMap id="BaseResultMap" type="com.jc.rag.domain.entity.rag.RagSkillEntity">
+        <id     column="id"            property="id"/>
+        <result column="skillName"     property="skillName"/>
+        <result column="skillKey"      property="skillKey"/>
+        <result column="description"   property="description"/>
+        <result column="promptTemplate" property="promptTemplate"/>
+        <result column="triggerType"   property="triggerType"/>
+        <result column="triggerRules"  property="triggerRules"/>
+        <result column="icon"          property="icon"/>
+        <result column="sortOrder"     property="sortOrder"/>
+        <result column="status"        property="status"/>
+        <result column="createdBy"     property="createdBy"/>
+        <result column="createdAt"     property="createdAt"/>
+        <result column="updatedAt"     property="updatedAt"/>
+    </resultMap>
+
+    <select id="countSkills" resultType="long">
+        SELECT COUNT(*) FROM sys_skills
+        WHERE 1=1
+        <if test="status != null">AND status = #{status}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (skill_name LIKE #{keyword} OR skill_key LIKE #{keyword} OR description LIKE #{keyword})
+        </if>
+    </select>
+
+    <sql id="skillListColumns">
+        SELECT id, skill_name AS skillName, skill_key AS skillKey,
+               description, prompt_template AS promptTemplate,
+               trigger_type AS triggerType, trigger_rules AS triggerRules,
+               icon, sort_order AS sortOrder, status,
+               created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+        FROM sys_skills
+        WHERE 1=1
+        <if test="status != null">AND status = #{status}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (skill_name LIKE #{keyword} OR skill_key LIKE #{keyword} OR description LIKE #{keyword})
+        </if>
+        ORDER BY sort_order ASC, id DESC
+    </sql>
+
+    <select id="pageSkills" resultMap="BaseResultMap">
+        <include refid="skillListColumns"/>
+    </select>
+
+    <select id="listSkills" resultMap="BaseResultMap">
+        <include refid="skillListColumns"/>
+    </select>
+
+    <select id="getSkill" resultType="java.util.LinkedHashMap">
+        SELECT id, skill_name AS skillName, skill_key AS skillKey,
+               description, prompt_template AS promptTemplate,
+               trigger_type AS triggerType, trigger_rules AS triggerRules,
+               icon, sort_order AS sortOrder, status,
+               created_by AS createdBy, created_at AS createdAt, updated_at AS updatedAt
+        FROM sys_skills
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insertSkill" parameterType="java.util.Map" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_skills (skill_name, skill_key, description, prompt_template,
+                                trigger_type, trigger_rules, icon, sort_order, status, created_by)
+        VALUES (#{row.skillName}, #{row.skillKey}, #{row.description}, #{row.promptTemplate},
+                #{row.triggerType}, #{row.triggerRules}, #{row.icon}, #{row.sortOrder}, #{row.status}, #{row.createdBy})
+    </insert>
+
+    <update id="updateSkill">
+        UPDATE sys_skills
+        <set>
+            <if test="row.skillName != null">skill_name = #{row.skillName},</if>
+            <if test="row.skillKey != null">skill_key = #{row.skillKey},</if>
+            <if test="row.description != null">description = #{row.description},</if>
+            <if test="row.promptTemplate != null">prompt_template = #{row.promptTemplate},</if>
+            <if test="row.triggerType != null">trigger_type = #{row.triggerType},</if>
+            <if test="row.triggerRules != null">trigger_rules = #{row.triggerRules},</if>
+            <if test="row.icon != null">icon = #{row.icon},</if>
+            <if test="row.sortOrder != null">sort_order = #{row.sortOrder},</if>
+            <if test="row.status != null">status = #{row.status},</if>
+            updated_at = NOW()
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateSkillStatus">
+        UPDATE sys_skills SET status = #{status}, updated_at = NOW() WHERE id = #{id}
+    </update>
+
+    <delete id="deleteSkill">
+        DELETE FROM sys_skills WHERE id = #{id}
+    </delete>
+
+</mapper>

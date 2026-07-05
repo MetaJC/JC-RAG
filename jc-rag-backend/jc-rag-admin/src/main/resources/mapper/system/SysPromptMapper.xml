@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.common.mapper.SysPromptMapper">
+
+    <select id="countPrompts" resultType="long">
+        SELECT COUNT(*) FROM sys_prompts
+        WHERE 1=1
+        <if test="scope != null and scope != ''">AND scope = #{scope}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (prompt_name LIKE #{keyword} OR prompt_key LIKE #{keyword} OR prompt_content LIKE #{keyword})
+        </if>
+    </select>
+
+    <select id="listPrompts" resultType="java.util.LinkedHashMap">
+        SELECT id, prompt_key AS promptKey, prompt_name AS promptName,
+               prompt_content AS promptContent, scope, scope_id AS scopeId,
+               status, description, created_by AS createdBy,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM sys_prompts
+        WHERE 1=1
+        <if test="scope != null and scope != ''">AND scope = #{scope}</if>
+        <if test="keyword != null and keyword != ''">
+            AND (prompt_name LIKE #{keyword} OR prompt_key LIKE #{keyword} OR prompt_content LIKE #{keyword})
+        </if>
+        ORDER BY scope, prompt_key
+        <if test="size != null and offset != null">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+</mapper>

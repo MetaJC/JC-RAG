@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.chat.ChatMessageReferenceMapper">
+
+    <insert id="insertBatch">
+        INSERT INTO chat_message_reference (
+            message_id, document_id, chunk_id, page_no, section_title, score, quote_text
+        ) VALUES
+        <foreach collection="list" item="r" separator=",">
+            (#{r.messageId}, #{r.documentId}, #{r.chunkId}, #{r.pageNo},
+             #{r.sectionTitle}, #{r.score}, #{r.quoteText})
+        </foreach>
+    </insert>
+
+</mapper>

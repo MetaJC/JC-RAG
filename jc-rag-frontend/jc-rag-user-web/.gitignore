@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-ssr
+*.local
+logs
+*.log
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Pro 商业版构建注入 (不入 community git)
+src/router/pro-api/
+src/router/pro-views/
+src/router/pro-extension.ts.built

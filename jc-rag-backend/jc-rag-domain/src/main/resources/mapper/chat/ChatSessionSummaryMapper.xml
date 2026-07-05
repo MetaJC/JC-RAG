@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.chat.ChatSessionSummaryMapper">
+
+    <select id="selectLatestActive" resultType="com.jc.rag.domain.entity.chat.ChatSessionSummaryEntity">
+        SELECT id, session_id AS sessionId, user_id AS userId,
+               summary_text AS summaryText,
+               covered_from_index AS coveredFromIndex,
+               covered_to_index AS coveredToIndex,
+               token_count AS tokenCount, status, model_name AS modelName,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM chat_session_summary
+        WHERE session_id = #{sessionId} AND status = 1
+        ORDER BY covered_to_index DESC, id DESC
+        LIMIT 1
+    </select>
+
+    <update id="invalidateAllActive">
+        UPDATE chat_session_summary
+        SET status = 0, updated_at = NOW()
+        WHERE session_id = #{sessionId} AND status = 1
+    </update>
+
+    <delete id="deleteByCreatedAtBefore">
+        DELETE FROM chat_session_summary WHERE created_at &lt;= #{cutoff}
+    </delete>
+
+</mapper>

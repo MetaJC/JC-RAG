@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.chat.UserMemoryProfileMapper">
+
+    <select id="selectByUserId" resultType="com.jc.rag.domain.entity.chat.UserMemoryProfileEntity">
+        SELECT id, user_id AS userId, profile_json AS profileJson,
+               version, fact_count AS factCount, model_name AS modelName,
+               last_extracted_at AS lastExtractedAt,
+               created_at AS createdAt, updated_at AS updatedAt
+        FROM user_memory_profile
+        WHERE user_id = #{userId}
+        LIMIT 1
+    </select>
+
+</mapper>
