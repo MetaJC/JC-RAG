@@ -4,11 +4,10 @@ import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
-import { pinia } from '../stores'
 import PreferencesDialog from './PreferencesDialog.vue'
 
 const router = useRouter()
-const authStore = useAuthStore(pinia)
+const authStore = useAuthStore()
 const dialogVisible = ref(false)
 const preferencesVisible = ref(false)
 const submitting = ref(false)

@@ -5,11 +5,10 @@ import { Lock, User } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
-import { pinia } from '../stores'
 import SlideCaptcha from '../components/SlideCaptcha.vue'
 
 const router = useRouter()
-const authStore = useAuthStore(pinia)
+const authStore = useAuthStore()
 const loading = ref(false)
 const captchaRef = ref<InstanceType<typeof SlideCaptcha> | null>(null)
 

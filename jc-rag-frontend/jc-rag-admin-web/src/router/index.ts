@@ -149,7 +149,10 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  const authStore = useAuthStore(pinia)
+  // ★ 不传 pinia 参数: 让 Pinia 从 active pinia 取, 避免 Vite alias 路径差异导致
+  //   Pro 端 (alias 解析) 与 community 端 (相对路径) 加载到不同的 stores 模块实例,
+  //   进而产生两个独立 pinia, user 数据写入"幽灵" pinia, 侧边栏读不到.
+  const authStore = useAuthStore()
   await authStore.init()
 
   if (to.meta.public) {
