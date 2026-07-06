@@ -5,11 +5,11 @@ import { proExtensionRoutes } from './pro-extension'
 // Pro 商业版构建注入 (inject-pro-frontend.ps1 生成 pro-extension.ts.built)
 // community 独立运行无 .built 时, glob 返回空对象, 降级为空数组
 const builtMod = import.meta.glob<{ proExtensionRoutesBuilt: RouteRecordRaw[] }>(
-  './pro-extension.built.ts',
+  './pro-extension.ts.built',
   { eager: true }
 )
 const proExtensionRoutesBuilt: RouteRecordRaw[] =
-  builtMod['./pro-extension.built.ts']?.proExtensionRoutesBuilt ?? []
+  builtMod['./pro-extension.ts.built']?.proExtensionRoutesBuilt ?? []
 
 import AuditLogView from '../views/AuditLogView.vue'
 import AgentSkillManageView from '../views/AgentSkillManageView.vue'
@@ -44,7 +44,11 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      // ★ 加 name: 'admin-main-layout' 作为 Pro 端 addRoute 的 parent 引用点
+      //   (vue-router 4 的 addRoute(parentName, route) 需要 parent 有 name)
+      //   社区版独立运行无影响 (children 仍按 path 匹配, name 仅用于引用)
       path: '/',
+      name: 'admin-main-layout',
       component: MainLayout,
       children: [
         {
