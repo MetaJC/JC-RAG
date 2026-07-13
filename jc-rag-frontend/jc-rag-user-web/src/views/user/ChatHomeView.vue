@@ -66,6 +66,14 @@ const LS_PAGE_STYLE = 'rag_chat_page_style'
 const LS_FONT_SIZE = 'rag_chat_font_size'
 const FONT_SIZES = [12, 14, 16, 17, 18, 19, 20, 22, 24]
 
+/**
+ * 是否 Pro 商业版构建.
+ * <p>Pro 端 vite.config.ts 通过 {@code define} 注入 {@code import.meta.env.VITE_IS_PRO=true},
+ * community build 默认 undefined / false, 公告入口不渲染. 公告路由由 Pro 端 addRoute 注入,
+ * community build 时该路由不存在, 即使误渲染也会 404 (双重防护).</p>
+ */
+const isProEdition = import.meta.env.VITE_IS_PRO === 'true'
+
 function lsGet(key: string): string | null { try { return localStorage.getItem(key) } catch { return null } }
 function lsSet(key: string, val: string) { try { localStorage.setItem(key, val) } catch {} }
 function lsRemove(key: string) { try { localStorage.removeItem(key) } catch {} }
@@ -1142,7 +1150,7 @@ function retryQuestion(text: string) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <router-link to="/announcement">系统公告</router-link>
+        <router-link v-if="isProEdition" to="/announcement">系统公告</router-link>
         <router-link to="/profile">个人中心</router-link>
         <a href="#" @click.prevent="logout">退出</a>
       </nav>

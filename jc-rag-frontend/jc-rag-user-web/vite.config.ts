@@ -13,7 +13,10 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     host: '127.0.0.1',
-    port: 5175,
+    // 让位给 Pro user dev (port 5175, jc-rag-pro/jc-rag-pro-frontend/jc-rag-pro-app-user),
+    // 社区版 user dev 改 5176, 两个 dev server 共存不冲突. Pro user 是 VITE_IS_PRO=true,
+    // 公告入口正常显示; community user dev 默认 VITE_IS_PRO=undefined, 入口不显示.
+    port: 5176,
     proxy: {
       '/api': {
         target: 'http://localhost:8082',
