@@ -56,6 +56,19 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!--
+            Flyway 数据库迁移 (社区版主源)
+            community 目录: jc-rag-admin/src/main/resources/db/migration/community/V*__*.sql
+            商业版通过 Maven 多模块 classpath 合并自动包含本目录
+        -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>

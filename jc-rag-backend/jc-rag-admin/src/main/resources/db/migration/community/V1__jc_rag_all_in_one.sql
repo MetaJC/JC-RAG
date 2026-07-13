@@ -1,32 +1,24 @@
 -- ============================================================
 -- JC RAG 智能知识库系统
--- MySQL 一体化初始化脚本
+-- MySQL 一体化初始化脚本 (Flyway 改造版)
 -- 作用：
--- 1. 创建数据库
--- 2. 创建系统所需全部核心表
--- 3. 初始化 RBAC 基础数据
--- 4. 初始化系统配置、模型配置、RAG 配置
--- 5. 初始化 Agent / Skill 基础数据
+-- 1. 创建系统所需全部核心表
+-- 2. 初始化 RBAC 基础数据
+-- 3. 初始化系统配置、模型配置、RAG 配置
+-- 4. 初始化 Agent / Skill 基础数据
 --
--- 使用方式：
--- 在 MySQL 中直接执行本脚本即可完成首轮初始化。
 -- 适用环境：
 -- MySQL 8.0+
+--
+-- ★ Flyway 适配说明 ★
+-- 1) 不再写 CREATE DATABASE / USE 切换库, 库由 application.yml 的 spring.datasource.url 决定
+-- 2) 若环境无 jc_rag / jc_rag_pro 库, 请 DBA 提前手动创建:
+--      CREATE DATABASE jc_rag      DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+--      CREATE DATABASE jc_rag_pro  DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+-- 3) 此脚本为社区版主源, 商业版通过 Maven 依赖自动复用本目录
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS jc_rag
-  DEFAULT CHARACTER SET utf8mb4
-  COLLATE utf8mb4_0900_ai_ci;
-
-USE jc_rag;
-
--- ============================================================
 -- 一、认证与权限模块
--- 用途：
--- 1. 存储用户、角色、权限
--- 2. 支撑 RBAC 权限控制
--- 3. 为菜单级、按钮级、接口级权限提供基础数据
--- ============================================================
 
 -- 用户表：存储系统登录用户基本信息
 CREATE TABLE IF NOT EXISTS sys_user (

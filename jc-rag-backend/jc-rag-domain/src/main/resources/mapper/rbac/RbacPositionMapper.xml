@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rbac.RbacPositionMapper">
+
+    <resultMap id="positionMap" type="java.util.LinkedHashMap">
+        <result column="id" property="id" jdbcType="BIGINT"/>
+        <result column="department_id" property="departmentId" jdbcType="BIGINT"/>
+        <result column="department_name" property="departmentName" jdbcType="VARCHAR"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="code" property="code" jdbcType="VARCHAR"/>
+        <result column="level" property="level" jdbcType="TINYINT"/>
+        <result column="sort" property="sort" jdbcType="INTEGER"/>
+        <result column="status" property="status" jdbcType="TINYINT"/>
+        <result column="remark" property="remark" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="baseColumns">
+        SELECT p.id, p.department_id, d.name AS department_name,
+               p.name, p.code, p.level, p.sort, p.status, p.remark,
+               p.created_at, p.updated_at
+        FROM rbac_position p
+        LEFT JOIN rbac_department d ON d.id = p.department_id
+    </sql>
+
+    <select id="countPositions" resultType="long">
+        SELECT COUNT(1)
+        FROM rbac_position p
+        WHERE 1=1
+        <if test="keyword != null and keyword != ''">
+            AND (p.name LIKE #{keyword} OR p.code LIKE #{keyword})
+        </if>
+        <if test="status != null">
+            AND p.status = #{status}
+        </if>
+        <if test="departmentId != null">
+            AND p.department_id = #{departmentId}
+        </if>
+        <if test="level != null">
+            AND p.level = #{level}
+        </if>
+    </select>
+
+    <select id="pagePositions" resultMap="positionMap">
+        <include refid="baseColumns"/>
+        WHERE 1=1
+        <if test="keyword != null and keyword != ''">
+            AND (p.name LIKE #{keyword} OR p.code LIKE #{keyword})
+        </if>
+        <if test="status != null">
+            AND p.status = #{status}
+        </if>
+        <if test="departmentId != null">
+            AND p.department_id = #{departmentId}
+        </if>
+        <if test="level != null">
+            AND p.level = #{level}
+        </if>
+        ORDER BY p.department_id ASC, p.sort ASC, p.id ASC
+    </select>
+
+    <select id="selectPositionById" resultMap="positionMap">
+        <include refid="baseColumns"/>
+        WHERE p.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="countByCode" resultType="long">
+        SELECT COUNT(1)
+        FROM rbac_position
+        WHERE code = #{code}
+        <if test="excludeId != null">
+            AND id &lt;&gt; #{excludeId}
+        </if>
+    </select>
+
+</mapper>

@@ -21,6 +21,17 @@ spring:
     basename: i18n/messages
     encoding: UTF-8
     use-code-as-default-message: false
+  # Flyway 数据库迁移
+  # user 端不直接放 SQL, 通过 jc-rag-admin 依赖自动加载 community/ 目录
+  # baseline-version=27: 存量库 baseline 在 V27, 与 community admin 保持一致
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 27
+    locations: classpath:db/migration/community
+    table: flyway_schema_history
+    validate-on-migrate: true
+    clean-disabled: true
 
 management:
   endpoints:

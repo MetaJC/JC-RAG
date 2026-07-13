@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rbac.RbacDepartmentMapper">
+
+    <resultMap id="departmentMap" type="java.util.LinkedHashMap">
+        <result column="id" property="id" jdbcType="BIGINT"/>
+        <result column="parent_id" property="parentId" jdbcType="BIGINT"/>
+        <result column="name" property="name" jdbcType="VARCHAR"/>
+        <result column="code" property="code" jdbcType="VARCHAR"/>
+        <result column="sort" property="sort" jdbcType="INTEGER"/>
+        <result column="status" property="status" jdbcType="TINYINT"/>
+        <result column="remark" property="remark" jdbcType="VARCHAR"/>
+        <result column="created_at" property="createdAt" jdbcType="TIMESTAMP"/>
+        <result column="updated_at" property="updatedAt" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="baseColumns">
+        SELECT id, parent_id, name, code, sort, status, remark, created_at, updated_at
+        FROM rbac_department
+    </sql>
+
+    <select id="countDepartments" resultType="long">
+        SELECT COUNT(1)
+        FROM rbac_department
+        WHERE 1=1
+        <if test="keyword != null and keyword != ''">
+            AND (name LIKE #{keyword} OR code LIKE #{keyword})
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        <if test="parentId != null">
+            AND parent_id = #{parentId}
+        </if>
+    </select>
+
+    <select id="pageDepartments" resultMap="departmentMap">
+        <include refid="baseColumns"/>
+        WHERE 1=1
+        <if test="keyword != null and keyword != ''">
+            AND (name LIKE #{keyword} OR code LIKE #{keyword})
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        <if test="parentId != null">
+            AND parent_id = #{parentId}
+        </if>
+        ORDER BY parent_id ASC, sort ASC, id ASC
+    </select>
+
+    <select id="listAllDepartments" resultMap="departmentMap">
+        <include refid="baseColumns"/>
+        ORDER BY parent_id ASC, sort ASC, id ASC
+    </select>
+
+    <select id="selectDepartmentById" resultMap="departmentMap">
+        <include refid="baseColumns"/>
+        WHERE id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="countByCode" resultType="long">
+        SELECT COUNT(1)
+        FROM rbac_department
+        WHERE code = #{code}
+        <if test="excludeId != null">
+            AND id &lt;&gt; #{excludeId}
+        </if>
+    </select>
+
+    <select id="countActivePositionByDepartmentId" resultType="long">
+        SELECT COUNT(1)
+        FROM rbac_position
+        WHERE department_id = #{departmentId}
+          AND status = 1
+    </select>
+
+    <!--
+        防环查询: MySQL 8 递归 CTE, 沿 parent_id 自引用找所有后代.
+        注意: root (parent_id=0) 永远不会被代入, 所以返回的是严格后代集合.
+    -->
+    <select id="selectDescendantIds" resultType="long">
+        WITH RECURSIVE dept_tree AS (
+            SELECT id, parent_id
+            FROM rbac_department
+            WHERE parent_id = #{id}
+            UNION ALL
+            SELECT d.id, d.parent_id
+            FROM rbac_department d
+            JOIN dept_tree t ON d.parent_id = t.id
+        )
+        SELECT id FROM dept_tree
+    </select>
+
+    <select id="selectMaxSortByParent" resultType="int">
+        SELECT COALESCE(MAX(sort), -1)
+        FROM rbac_department
+        WHERE parent_id = #{parentId}
+    </select>
+
+    <!--
+        批量更新 sort: foreach + CASE WHEN, 单 SQL 完成 N 行更新.
+        items 形如 [{id: 1, sort: 0}, {id: 2, sort: 1}, ...]
+    -->
+    <update id="batchUpdateSort">
+        UPDATE rbac_department
+        <set>
+            sort = CASE id
+            <foreach collection="items" item="it">
+                WHEN #{it.id} THEN #{it.sort}
+            </foreach>
+            END
+        </set>
+        WHERE id IN
+        <foreach collection="items" item="it" open="(" close=")" separator=",">
+            #{it.id}
+        </foreach>
+    </update>
+
+    <!--
+        区间查询: 查某父级下 sort 介于 [start, end] 的兄弟.
+    -->
+    <select id="selectSiblingsInSortRange" resultMap="departmentMap">
+        <include refid="baseColumns"/>
+        WHERE parent_id = #{parentId}
+          AND sort &gt;= #{start}
+          AND sort &lt;= #{end}
+        ORDER BY sort ASC, id ASC
+    </select>
+
+    <!--
+        整段查: 某父级下全部兄弟 (按 sort 升序).
+    -->
+    <select id="listSiblingsForRebuild" resultMap="departmentMap">
+        <include refid="baseColumns"/>
+        WHERE parent_id = #{parentId}
+        ORDER BY sort ASC, id ASC
+    </select>
+
+    <!--
+        级联更新状态: 把一组 id 的 status 一次性更新.
+        用于父级启停时, 把后代也一起带过来.
+    -->
+    <update id="batchUpdateStatus">
+        UPDATE rbac_department
+        SET status = #{status}
+        WHERE id IN
+        <foreach collection="ids" item="iid" open="(" close=")" separator=",">
+            #{iid}
+        </foreach>
+    </update>
+
+</mapper>

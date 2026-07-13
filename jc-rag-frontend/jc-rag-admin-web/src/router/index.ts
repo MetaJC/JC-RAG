@@ -26,6 +26,8 @@ import RbacUserView from '../views/RbacUserView.vue'
 import RbacRoleView from '../views/RbacRoleView.vue'
 import RbacMenuView from '../views/RbacMenuView.vue'
 import RbacPermissionView from '../views/RbacPermissionView.vue'
+import RbacDepartmentView from '../views/RbacDepartmentView.vue'
+import RbacPositionView from '../views/RbacPositionView.vue'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
 import SystemSettingsView from '../views/SystemSettingsView.vue'
@@ -101,6 +103,18 @@ const router = createRouter({
           path: '/rbac/permissions',
           name: 'rbac-permissions',
           component: RbacPermissionView,
+        },
+        {
+          // 部门管理 (RBAC 组织维度)
+          path: '/rbac/departments',
+          name: 'rbac-departments',
+          component: RbacDepartmentView,
+        },
+        {
+          // 岗位管理 (RBAC 组织维度)
+          path: '/rbac/positions',
+          name: 'rbac-positions',
+          component: RbacPositionView,
         },
         {
           path: '/prompts/manage',

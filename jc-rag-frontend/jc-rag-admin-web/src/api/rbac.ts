@@ -140,3 +140,102 @@ export async function deleteRbacPermission(permissionId: number) {
   const { data } = await request.delete(`/rbac/permission/${permissionId}`)
   return data
 }
+
+// =====================================================================
+// 部门 / 岗位 (RBAC 组织维度)
+//   控制器类级 @RequestMapping = /api/rbac/department | /api/rbac/position
+// =====================================================================
+
+export async function fetchRbacDepartments(params: { page?: number; size?: number; keyword?: string; status?: number; parentId?: number }) {
+  const { data } = await request.get('/rbac/department', { params })
+  return data
+}
+
+export async function fetchRbacDepartmentTree() {
+  const { data } = await request.get('/rbac/department/tree')
+  return data
+}
+
+export async function fetchRbacDepartment(id: number) {
+  const { data } = await request.get(`/rbac/department/${id}`)
+  return data
+}
+
+export async function createRbacDepartment(payload: Record<string, unknown>) {
+  const { data } = await request.post('/rbac/department', payload)
+  return data
+}
+
+export async function updateRbacDepartment(id: number, payload: Record<string, unknown>) {
+  const { data } = await request.put(`/rbac/department/${id}`, payload)
+  return data
+}
+
+export async function updateRbacDepartmentStatus(id: number, status: number) {
+  const { data } = await request.put(`/rbac/department/${id}/status/${status}`)
+  return data
+}
+
+/**
+ * 级联切换部门状态: 父级启停时把后代 (含子级/孙级) 一起更新.
+ * <p>返回受影响的部门名称列表, 供前端展示级联提示.
+ */
+export async function updateRbacDepartmentStatusCascade(id: number, status: number) {
+  const { data } = await request.put(`/rbac/department/${id}/status/${status}/cascade`)
+  return data as {
+    rootId: number
+    rootName: string
+    status: number
+    affectedCount: number
+    affectedNames: string[]
+  }
+}
+
+/**
+ * 拖拽调整部门结构 (改变父级 / 排序).
+ * <p>position: before=同级前位 / after=同级后位 / inner=变子级
+ */
+export async function moveRbacDepartment(id: number, payload: { targetId: number; position: 'before' | 'after' | 'inner' }) {
+  const { data } = await request.put(`/rbac/department/${id}/move`, payload)
+  return data
+}
+
+export async function deleteRbacDepartment(id: number) {
+  const { data } = await request.delete(`/rbac/department/${id}`)
+  return data
+}
+
+export async function fetchRbacPositions(params: { page?: number; size?: number; keyword?: string; status?: number; departmentId?: number; level?: number }) {
+  const { data } = await request.get('/rbac/position', { params })
+  return data
+}
+
+export async function fetchRbacActivePositions() {
+  const { data } = await request.get('/rbac/position/active')
+  return data
+}
+
+export async function fetchRbacPosition(id: number) {
+  const { data } = await request.get(`/rbac/position/${id}`)
+  return data
+}
+
+export async function createRbacPosition(payload: Record<string, unknown>) {
+  const { data } = await request.post('/rbac/position', payload)
+  return data
+}
+
+export async function updateRbacPosition(id: number, payload: Record<string, unknown>) {
+  const { data } = await request.put(`/rbac/position/${id}`, payload)
+  return data
+}
+
+export async function updateRbacPositionStatus(id: number, status: number) {
+  const { data } = await request.put(`/rbac/position/${id}/status/${status}`)
+  return data
+}
+
+export async function deleteRbacPosition(id: number) {
+  const { data } = await request.delete(`/rbac/position/${id}`)
+  return data
+}

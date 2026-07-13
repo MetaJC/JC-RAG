@@ -25,6 +25,19 @@ spring:
     time-zone: GMT+8
     serialization:
       write-dates-as-timestamps: false
+  # Flyway 数据库迁移 (社区版主源)
+  # 脚本目录: jc-rag-admin/src/main/resources/db/migration/community/V*__*.sql
+  # 商业版通过 Maven 多模块 classpath 合并自动加载同一目录
+  # baseline-version=27: 存量库 (已手工跑过 V1~V26) 首次启动时, Flyway 会在 V27 处打 baseline,
+  #   不重跑 V1~V26, 避免 INSERT 重复. 后续新增 V28+ 两库都会自动执行.
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 27
+    locations: classpath:db/migration/community
+    table: flyway_schema_history
+    validate-on-migrate: true
+    clean-disabled: true
 
 management:
   endpoints:

@@ -16,9 +16,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -66,7 +69,7 @@ public class OperationLogAspect {
         SysOperationLog entity = new SysOperationLog();
         entity.setModuleName(truncate(ann.module(), 64));
         entity.setOperationType(truncate(ann.action(), 64));
-        entity.setOperationDesc(truncate(ann.description(), 500));
+        entity.setOperationDesc(truncate(resolvePlaceholders(ann.description(), pjp.getArgs()), 500));
         entity.setRequestMethod(req != null && req.getMethod() != null ? req.getMethod() : "INTERNAL");
         entity.setRequestUri(truncate(req != null ? req.getRequestURI() : null, 255));
         entity.setRequestIp(truncate(req != null ? clientIp(req) : null, 64));
@@ -155,5 +158,53 @@ public class OperationLogAspect {
         int end = max;
         while (end > 0 && (s.charAt(end) & 0xC0) == 0x80) end--;
         return s.substring(0, end);
+    }
+
+    /**
+     * 占位符替换: 把 description 中的 {0} / {0.name} 替换成 args 对应参数的值.
+     * <p>语法: {index} 取 args[index].toString(); {index.field} 取 args[index].field 的值.
+     * <p>field 找不到时返回空串, 不会抛异常.
+     */
+    private static String resolvePlaceholders(String desc, Object[] args) {
+        if (desc == null || desc.isEmpty() || args == null) return desc;
+        Pattern p = Pattern.compile("\\{(\\d+)(?:\\.([A-Za-z_]\\w*))?\\}");
+        Matcher m = p.matcher(desc);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String replacement = "";
+            try {
+                int idx = Integer.parseInt(m.group(1));
+                String field = m.group(2);
+                if (idx >= 0 && idx < args.length) {
+                    Object arg = args[idx];
+                    if (field == null || field.isEmpty()) {
+                        replacement = arg == null ? "null" : arg.toString();
+                    } else if (arg != null) {
+                        Field f = findField(arg.getClass(), field);
+                        if (f != null) {
+                            f.setAccessible(true);
+                            Object v = f.get(arg);
+                            replacement = v == null ? "" : v.toString();
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // 占位符解析失败保留空串, 避免打断日志保存
+            }
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    private static Field findField(Class<?> clazz, String name) {
+        while (clazz != null) {
+            try {
+                return clazz.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                clazz = clazz.getSuperclass();
+            }
+        }
+        return null;
     }
 }

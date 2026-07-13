@@ -278,4 +278,16 @@ public class AbstractRbacService {
         if (isSuperAdmin()) return false;
         return true;
     }
+
+    /**
+     * 校验当前用户是否有权操作顶级部门 (parentId=0 或 自身是顶级).
+     * <p>规则: 仅 developer 与 super_admin 可操作顶级部门, 其他用户拒绝.
+     * <p>用途: 部门树的根节点是组织最顶层, 误改会破坏整个架构, 需限制为系统级账号.
+     */
+    public void assertCanEditRootDepartment() {
+        if (isDeveloper()) return;
+        if (isSuperAdmin()) return;
+        throw new BizException(ResultCode.FORBIDDEN,
+                "顶级部门仅 developer / super_admin 可操作");
+    }
 }
