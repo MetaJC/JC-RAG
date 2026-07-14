@@ -17,12 +17,24 @@ import java.util.List;
 public class RbacUserVO extends BaseVO {
     private String username;
     private String nickname;
+    /**
+     * 真实姓名 (与昵称区分, 用户列表 / 详情弹窗展示)
+     */
+    private String realName;
     private String email;
     private String phone;
     private Integer status;
     private String statusText;
     private String userType;
     private String userTypeText;
+    /**
+     * 性别 (0=未知 1=男 2=女)
+     */
+    private Integer gender;
+    /**
+     * 性别文本 (未知/男/女, 供前端展示)
+     */
+    private String genderText;
     /**
      * 主部门 id (冗余, 真实关联见 rbac_user_department 表)
      */
@@ -41,6 +53,8 @@ public class RbacUserVO extends BaseVO {
     public void setUsername(String v) { this.username = v; }
     public String getNickname() { return nickname; }
     public void setNickname(String v) { this.nickname = v; }
+    public String getRealName() { return realName; }
+    public void setRealName(String v) { this.realName = v; }
     public String getEmail() { return email; }
     public void setEmail(String v) { this.email = v; }
     public String getPhone() { return phone; }
@@ -53,6 +67,10 @@ public class RbacUserVO extends BaseVO {
     public void setUserType(String v) { this.userType = v; }
     public String getUserTypeText() { return userTypeText; }
     public void setUserTypeText(String v) { this.userTypeText = v; }
+    public Integer getGender() { return gender; }
+    public void setGender(Integer v) { this.gender = v; }
+    public String getGenderText() { return genderText; }
+    public void setGenderText(String v) { this.genderText = v; }
     public Long getDepartmentId() { return departmentId; }
     public void setDepartmentId(Long v) { this.departmentId = v; }
     public String getDepartmentName() { return departmentName; }

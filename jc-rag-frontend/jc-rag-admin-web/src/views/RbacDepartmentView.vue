@@ -17,6 +17,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import {
   ArrowDown,
   ArrowRight,
+  Avatar,
   Check,
   CircleClose,
   Connection,
@@ -24,6 +25,7 @@ import {
   Document,
   Edit,
   Expand,
+  Folder,
   FolderOpened,
   Fold,
   OfficeBuilding,
@@ -31,7 +33,6 @@ import {
   Refresh,
   Search,
   Sort,
-  User,
   UserFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -45,7 +46,9 @@ import {
   fetchRbacDepartment,
   fetchRbacDepartmentTree,
   fetchRbacDepartmentUserIds,
+  fetchRbacDepartmentUsers,
   fetchRbacRootDepartment,
+  fetchRbacUserDetail,
   fetchRbacUsers,
   moveRbacDepartment,
   updateRbacCompanyName,
@@ -68,7 +71,32 @@ type DeptNode = {
 }
 
 /** 扁平化行: 保留原 node 字段, 附加 level/hasChildren 用于渲染缩进与折叠 */
-type FlatDept = DeptNode & { level: number; hasChildren: boolean }
+type FlatDept = DeptNode & { level: number; hasChildren: boolean; rowType: 'dept' }
+
+/**
+ * 部门用户行 (仅开关打开时, 紧随对应部门行下方插入).
+ * <p>rowType='user' 用于 el-table column 区分渲染; 单独 className dept-user-row-{id}
+ * <p>确保 useHoverHit 不会把它识别为可拖拽目标 (正则 dept-row-(\d+) 不匹配).
+ */
+type FlatUser = {
+  rowType: 'user'
+  id: number
+  userId: number
+  departmentId: number
+  nickname: string
+  username: string
+  gender: number
+  level: number
+}
+
+type FlatRow = FlatDept | FlatUser
+
+/**
+ * 类型守卫: 判断行是否为用户行.
+ */
+function isUserRow(row: FlatRow): row is FlatUser {
+  return (row as FlatUser).rowType === 'user'
+}
 
 const loading = ref(false)
 const deptTree = ref<DeptNode[]>([])
@@ -198,6 +226,148 @@ const filteredTree = computed(() => applyClientFilter(displayTree.value, keyword
 /** 扁平化渲染列表: 遍历 filteredTree, 命中节点保留祖先链, 已展开节点的 children 继续展开 */
 const flatList = computed<FlatDept[]>(() => flattenForDisplay(filteredTree.value, expandedIds.value))
 
+/* =====================================================================
+ * 显示部门用户 (开关 + 缓存 + 行数据混入)
+ * <p>- 默认关闭; 打开后每个部门行下插入该部门的直接关联用户行
+ * <p>- 数据来源: /api/rbac/user/list-by-department/{deptId} (单级, 不递归)
+ * <p>- 用户行 className 用 dept-user-row-{userId}, useHoverHit 不会识别为拖拽目标
+ * ===================================================================== */
+
+/** 是否显示部门用户 */
+const showDeptUsers = ref(false)
+
+/** 部门用户缓存: Map<deptId, 用户列表>; 关闭开关时清空 */
+const deptUsersMap = ref<Map<number, Array<{
+  id: number
+  username: string
+  nickname: string
+  gender: number
+}>>>(new Map())
+
+/** 用户行加载中标记, 用于 el-table 列表显示 loading 状态 */
+const deptUsersLoading = ref(false)
+
+/**
+ * 加载指定部门的直接关联用户.
+ * <p>单级, 不递归, 命中后端已排除 developer / super_admin.
+ * <p>命中缓存直接返回; 失败时记录空列表避免反复请求.
+ */
+async function loadDeptUsers(deptId: number) {
+  if (deptUsersMap.value.has(deptId)) return
+  try {
+    const users = await fetchRbacDepartmentUsers(deptId)
+    deptUsersMap.value.set(deptId, users ?? [])
+  } catch {
+    deptUsersMap.value.set(deptId, [])
+  }
+}
+
+/**
+ * 开关打开时: 加载所有当前展示的部门 (filteredTree 内) 的用户.
+ * <p>关闭时: 清空缓存, 用户行消失.
+ */
+async function onShowDeptUsersChange(val: boolean) {
+  if (!val) {
+    deptUsersMap.value = new Map()
+    return
+  }
+  deptUsersLoading.value = true
+  try {
+    const ids: number[] = []
+    const collect = (ns: DeptNode[]) => {
+      for (const n of ns) {
+        ids.push(n.id)
+        if (n.children?.length) collect(n.children)
+      }
+    }
+    collect(filteredTree.value)
+    await Promise.all(ids.map((id) => loadDeptUsers(id)))
+  } finally {
+    deptUsersLoading.value = false
+  }
+}
+
+/**
+ * 部门行下方拼接用户行.
+ * <p>仅在 showDeptUsers=true 时混入; level 比父部门多 1, 视觉上与子部门对齐.
+ * <p>折叠逻辑: 部门被用户主动折叠 (expandedIds 不包含) 时, 其用户行也一起折叠,
+ * <p>保持"部门 ↔ 用户"视觉绑定, 避免出现"部门收起但用户还挂着"的孤立行.
+ */
+const flatListWithUsers = computed<FlatRow[]>(() => {
+  if (!showDeptUsers.value) return flatList.value
+  const out: FlatRow[] = []
+  for (const dept of flatList.value) {
+    out.push(dept)
+    // 仅展开状态的部门才显示其直接关联用户 (叶子部门 expandedIds 默认包含, 永远显示)
+    if (!expandedIds.value.has(dept.id)) continue
+    const users = deptUsersMap.value.get(dept.id) ?? []
+    for (const u of users) {
+      out.push({
+        rowType: 'user',
+        id: u.id,
+        userId: u.id,
+        departmentId: dept.id,
+        nickname: u.nickname || u.username,
+        username: u.username,
+        gender: u.gender ?? 0,
+        level: dept.level + 1,
+      })
+    }
+  }
+  return out
+})
+
+/* =====================================================================
+ * 用户详情弹窗 (点部门树内用户行 → 弹窗显示详情)
+ * ===================================================================== */
+const userDetailDialogVisible = ref(false)
+const userDetailLoading = ref(false)
+const userDetail = ref<any | null>(null)
+
+/**
+ * 打开用户详情弹窗.
+ * <p>调用 GET /api/rbac/user/{id}/detail 拉取最新数据; 失败弹 toast.
+ */
+async function openUserDetail(userRow: FlatUser) {
+  userDetail.value = null
+  userDetailDialogVisible.value = true
+  userDetailLoading.value = true
+  try {
+    const data = await fetchRbacUserDetail(userRow.userId)
+    userDetail.value = data
+  } catch (e: any) {
+    ElMessage.error(e?.message || '用户详情加载失败')
+    userDetailDialogVisible.value = false
+  } finally {
+    userDetailLoading.value = false
+  }
+}
+
+function closeUserDetail() {
+  userDetailDialogVisible.value = false
+  userDetail.value = null
+}
+
+/**
+ * 性别 icon: 男蓝 / 女粉 / 未知灰 — 统一使用 Avatar (小圆脑袋+半个身子).
+ * <p>颜色由 genderIconColor 决定, 与性别一一对应.
+ */
+function renderGenderIcon(_g: number) {
+  return Avatar
+}
+
+/**
+ * 性别 icon 颜色 (马卡龙色, 蓝/粉色调不变, 整体提亮).
+ * <p>男: 极浅蓝 (#B3D8FF, macaron sky blue)
+ * <p>女: 极浅粉 (#FFB3C6, macaron rose)
+ * <p>未知: 极浅灰 (#DCDFE6)
+ */
+function genderIconColor(g: number) {
+  if (g === 1) return '#B3D8FF'
+  if (g === 2) return '#FFB3C6'
+  return '#DCDFE6'
+}
+
 const keyword = ref('')
 const statusFilter = ref<number | undefined>(undefined)
 
@@ -297,6 +467,7 @@ function flattenForDisplay(nodes: DeptNode[], expanded: Set<number>, level = 0, 
       updatedAt: n.updatedAt,
       level,
       hasChildren,
+      rowType: 'dept',
     } as FlatDept)
     if (hasChildren && expanded.has(n.id)) {
       flattenForDisplay(n.children!, expanded, level + 1, out)
@@ -324,9 +495,11 @@ function toggleExpand(row: FlatDept) {
 /**
  * el-table row-class-name: 给每行加 dept-row-{id} class,
  * <p>用于拖拽时通过 className 反查部门 id (SortableJS evt.item 没有 data-*).
+ * <p>用户行使用 dept-user-row-{userId}, useHoverHit 不会匹配, 不会成为拖拽目标.
  */
-function rowClassName({ row }: { row: FlatDept }): string {
-  return `dept-row-${row.id}`
+function rowClassName({ row }: { row: FlatRow }): string {
+  if (isUserRow(row)) return `dept-user-row dept-user-row-${row.userId}`
+  return `dept-row dept-row-${row.id}`
 }
 
 function expandAll() {
@@ -826,8 +999,8 @@ function formatDate(d?: string) {
 
 watch(() => form.parentId, () => syncParentDisplay())
 
-watch(flatList, () => {
-  // 列表变化 (展开/折叠/过滤/数据更新) 后, 重新初始化 SortableJS
+watch(flatListWithUsers, () => {
+  // 列表变化 (展开/折叠/过滤/数据更新/用户行混入) 后, 重新初始化 SortableJS
   if (dragState.value.dragging) return
   nextTick(() => initSortable())
 })
@@ -901,6 +1074,18 @@ onBeforeUnmount(() => {
               </el-tooltip>
             </span>
           </template>
+          <!--
+            显示部门用户开关 (与公司名称同行, 紧跟编辑入口右侧)
+            <p>默认关闭; 打开后每个部门行下插入该部门直接关联的用户行
+          -->
+          <el-switch
+            v-model="showDeptUsers"
+            class="dept-users-switch"
+            active-text="显示部门用户"
+            inactive-text="隐藏部门用户"
+            inline-prompt
+            @change="onShowDeptUsersChange"
+          />
         </div>
 
         <div class="toolbar-merged__divider" />
@@ -931,17 +1116,46 @@ onBeforeUnmount(() => {
       </div>
 
       <el-table
-        v-loading="loading"
-        :data="flatList"
+        v-loading="loading || deptUsersLoading"
+        :data="flatListWithUsers"
         row-key="id"
         border
         class="dept-table-wrap"
         empty-text="暂无部门"
         :row-class-name="rowClassName"
       >
-        <el-table-column label="部门名称" min-width="320">
+        <el-table-column label="部门名称 / 用户" min-width="360">
           <template #default="{ row }">
-            <div class="dept-name-cell" :style="{ paddingLeft: row.level * 24 + 'px' }">
+            <!--
+              用户行: 性别 icon + nickname, 整行可点击打开详情.
+              <p>无 drag handle, 无展开按钮, 浅灰背景, 视觉上明显区别于部门行.
+              <p>padding-left = row.level * 24, 与该部门的下属部门行 padding-left 一致,
+              <p>确保"用户行 ↔ 子部门行"在视觉上左对齐 (统一缩进粒度 = 1 级 24px).
+            -->
+            <div
+              v-if="isUserRow(row)"
+              class="dept-user-cell"
+              :style="{ paddingLeft: row.level * 24 + 'px' }"
+              @click="openUserDetail(row)"
+            >
+              <el-icon
+                class="dept-user-gender"
+                :size="14"
+                :color="genderIconColor(row.gender)"
+              >
+                <component :is="renderGenderIcon(row.gender)" />
+              </el-icon>
+              <span class="dept-user-nickname">{{ row.nickname }}</span>
+              <span class="dept-user-username">@{{ row.username }}</span>
+              <el-tag size="small" effect="plain" type="info" class="dept-user-tag">用户</el-tag>
+            </div>
+            <!-- 部门行: 顶级 OfficeBuilding 蓝 / 普通 Folder 绿; 与用户行视觉分离 -->
+            <div
+              v-else
+              class="dept-name-cell"
+              :style="{ paddingLeft: row.level * 24 + 'px' }"
+              @click="toggleExpand(row)"
+            >
               <el-icon
                 v-if="row.hasChildren"
                 class="dept-expand-btn"
@@ -956,23 +1170,28 @@ onBeforeUnmount(() => {
                 <Sort />
               </el-icon>
               <el-icon
-                :size="14"
-                :color="row.parentId === 0 ? '#409eff' : '#909399'"
+                :size="15"
+                :color="row.parentId === 0 ? '#409eff' : '#67c23a'"
                 class="dept-name-icon"
               >
                 <OfficeBuilding v-if="row.parentId === 0" />
-                <User v-else />
+                <Folder v-else />
               </el-icon>
               <span :class="{ 'dept-name-top': row.parentId === 0 }">{{ row.name }}</span>
             </div>
           </template>
         </el-table-column>
 
-        <el-table-column label="排序" prop="sort" width="90" align="center" />
+        <el-table-column label="排序" prop="sort" width="90" align="center">
+          <template #default="{ row }">
+            <span v-if="!isUserRow(row)">{{ row.sort }}</span>
+          </template>
+        </el-table-column>
 
         <el-table-column label="状态" width="90" align="center">
           <template #default="{ row }">
             <el-tag
+              v-if="!isUserRow(row)"
               size="small"
               :type="row.status === 1 ? 'success' : 'info'"
               effect="plain"
@@ -982,32 +1201,39 @@ onBeforeUnmount(() => {
 
         <el-table-column label="创建时间" width="170" align="center">
           <template #default="{ row }">
-            {{ formatDate(row.createdAt) }}
+            <span v-if="!isUserRow(row)">{{ formatDate(row.createdAt) }}</span>
           </template>
         </el-table-column>
 
         <el-table-column label="操作" width="290" align="center" fixed="right">
           <template #default="{ row }">
-            <el-tooltip content="新增子部门" placement="top">
-              <el-button link type="primary" :icon="Plus" @click.stop="openCreate(row.id)" />
-            </el-tooltip>
-            <el-tooltip content="编辑" placement="top">
-              <el-button link type="primary" :icon="Edit" @click.stop="openEdit(row)" />
-            </el-tooltip>
-            <el-tooltip content="分配用户" placement="top">
-              <el-button link type="success" :icon="UserFilled" @click.stop="openAssignUsers(row)" />
-            </el-tooltip>
-            <el-tooltip :content="row.status === 1 ? '禁用' : '启用'" placement="top">
-              <el-button
-                link
-                :type="row.status === 1 ? 'warning' : 'success'"
-                :icon="row.status === 1 ? CircleClose : Check"
-                @click.stop="toggleStatus(row)"
-              />
-            </el-tooltip>
-            <el-tooltip content="删除" placement="top">
-              <el-button link type="danger" :icon="Delete" @click.stop="remove(row)" />
-            </el-tooltip>
+            <template v-if="!isUserRow(row)">
+              <el-tooltip content="新增子部门" placement="top">
+                <el-button link type="primary" :icon="Plus" @click.stop="openCreate(row.id)" />
+              </el-tooltip>
+              <el-tooltip content="编辑" placement="top">
+                <el-button link type="primary" :icon="Edit" @click.stop="openEdit(row)" />
+              </el-tooltip>
+              <el-tooltip content="分配用户" placement="top">
+                <el-button link type="success" :icon="UserFilled" @click.stop="openAssignUsers(row)" />
+              </el-tooltip>
+              <el-tooltip :content="row.status === 1 ? '禁用' : '启用'" placement="top">
+                <el-button
+                  link
+                  :type="row.status === 1 ? 'warning' : 'success'"
+                  :icon="row.status === 1 ? CircleClose : Check"
+                  @click.stop="toggleStatus(row)"
+                />
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button link type="danger" :icon="Delete" @click.stop="remove(row)" />
+              </el-tooltip>
+            </template>
+            <template v-else>
+              <el-tooltip content="查看用户详情" placement="top">
+                <el-button link type="primary" :icon="UserFilled" @click.stop="openUserDetail(row)" />
+              </el-tooltip>
+            </template>
           </template>
         </el-table-column>
       </el-table>
@@ -1221,6 +1447,72 @@ onBeforeUnmount(() => {
         <el-button type="primary" :loading="assignUsersSaving" @click="submitAssignUsers">保存</el-button>
       </template>
     </el-dialog>
+    <!--
+      用户详情弹窗 (点部门树内用户行 / 操作列 UserFilled 按钮)
+      <p>展示用户只读信息: 账号/昵称/性别/手机/邮箱/部门/状态/类型/角色/最后登录/创建时间
+    -->
+    <el-dialog
+      v-model="userDetailDialogVisible"
+      title="用户详情"
+      width="560px"
+      destroy-on-close
+      @close="closeUserDetail"
+    >
+      <div v-loading="userDetailLoading" class="user-detail-wrap">
+        <template v-if="userDetail">
+          <div class="user-detail-header">
+            <el-icon :size="28" :color="genderIconColor(userDetail.gender ?? 0)">
+              <component :is="renderGenderIcon(userDetail.gender ?? 0)" />
+            </el-icon>
+            <div class="user-detail-title">
+              <span class="user-detail-nickname">{{ userDetail.nickname || userDetail.username }}</span>
+              <span class="user-detail-username">@{{ userDetail.username }}</span>
+            </div>
+          </div>
+          <el-descriptions :column="2" border size="default" class="user-detail-descs">
+            <el-descriptions-item label="账号">{{ userDetail.username }}</el-descriptions-item>
+            <el-descriptions-item label="昵称">{{ userDetail.nickname || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="真实姓名">{{ userDetail.realName || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="性别">
+              {{ userDetail.genderText || '未知' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="手机">{{ userDetail.phone || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="邮箱">{{ userDetail.email || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="部门">{{ userDetail.departmentName || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="状态">
+              <el-tag
+                size="small"
+                :type="userDetail.status === 1 ? 'success' : 'info'"
+                effect="plain"
+              >{{ userDetail.statusText || (userDetail.status === 1 ? '启用' : '禁用') }}</el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="类型">
+              {{ userDetail.userTypeText || userDetail.userType || '—' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="角色" :span="2">
+              <template v-if="userDetail.roleNames && userDetail.roleNames.length > 0">
+                <el-tag
+                  v-for="rn in userDetail.roleNames"
+                  :key="rn"
+                  size="small"
+                  effect="plain"
+                  type="info"
+                  class="user-detail-role-tag"
+                >{{ rn }}</el-tag>
+              </template>
+              <span v-else>—</span>
+            </el-descriptions-item>
+            <el-descriptions-item label="最后登录">{{ formatDate(userDetail.lastLoginTime) }}</el-descriptions-item>
+            <el-descriptions-item label="最后登录 IP">{{ userDetail.lastLoginIp || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="创建时间" :span="2">{{ formatDate(userDetail.createdAt) }}</el-descriptions-item>
+          </el-descriptions>
+        </template>
+        <el-empty v-else-if="!userDetailLoading" description="暂无数据" :image-size="60" />
+      </div>
+      <template #footer>
+        <el-button @click="closeUserDetail">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1325,6 +1617,112 @@ onBeforeUnmount(() => {
 .text-muted {
   color: #9ca3af;
   font-weight: 400;
+}
+
+/* =====================================================================
+ * 显示部门用户开关
+ * ===================================================================== */
+.dept-users-switch {
+  margin-left: 16px;
+  flex-shrink: 0;
+  --el-switch-on-color: #409eff;
+}
+.dept-users-switch :deep(.el-switch__core) {
+  min-width: 50px;
+}
+
+/* =====================================================================
+ * 部门树内用户行
+ * <p>视觉上区别于部门行: 浅灰底 + 性别 icon (Male 蓝 / Female 粉 / User 灰) + 缩小字号
+ * <p>部门行: 顶部白底 + Folder 绿/OfficeBuilding 蓝
+ * ===================================================================== */
+.dept-user-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 26px;
+  cursor: pointer;
+  padding-right: 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+.dept-user-cell:hover {
+  background-color: #eef5ff;
+}
+.dept-user-gender {
+  flex-shrink: 0;
+}
+.dept-user-nickname {
+  font-size: 13px;
+  color: #4b5563;
+  font-weight: 400;
+}
+.dept-user-username {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.dept-user-tag {
+  margin-left: 4px;
+  height: 18px;
+  line-height: 17px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+/* 用户行: 整行浅灰底, hover 浅蓝 */
+.dept-table-wrap tr.dept-user-row > .el-table__cell {
+  background-color: #f5f7fa !important;
+}
+.dept-table-wrap tr.dept-user-row:hover > .el-table__cell {
+  background-color: #eef5ff !important;
+}
+
+/* 部门行文字 (深色 + 加粗, 区别于用户) */
+.dept-name-cell .dept-name-icon {
+  margin: 0 2px;
+}
+.dept-name-cell > span:not(.dept-expand-placeholder) {
+  font-size: 14px;
+  color: #1f2937;
+  font-weight: 500;
+}
+
+/* =====================================================================
+ * 用户详情弹窗
+ * ===================================================================== */
+.user-detail-wrap {
+  min-height: 220px;
+}
+.user-detail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 16px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  margin-bottom: 12px;
+}
+.user-detail-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.user-detail-nickname {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  letter-spacing: 0.3px;
+}
+.user-detail-username {
+  font-size: 12px;
+  color: #9ca3af;
+}
+.user-detail-descs {
+  margin-top: 4px;
+}
+.user-detail-role-tag {
+  margin-right: 4px;
+  margin-bottom: 2px;
 }
 
 /* =====================================================================

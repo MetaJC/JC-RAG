@@ -7,6 +7,8 @@
  */
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import {
+  ArrowLeft,
+  ArrowRight,
   Connection,
   Delete,
   Document,
@@ -30,6 +32,7 @@ import {
   deleteRbacUser,
   fetchRbacDashboard,
   fetchRbacDepartmentTree,
+  fetchRbacGenderOptions,
   fetchRbacRoles,
   fetchRbacUsers,
   resetRbacUserPassword,
@@ -130,6 +133,7 @@ const editingUserIsDeveloper = ref(false)
 const userForm = reactive({
   username: '',
   nickname: '',
+  realName: '',
   phone: '',
   email: '',
   userType: 'NORMAL',
@@ -137,7 +141,11 @@ const userForm = reactive({
   password: '',
   departmentId: null as number | null,
   roleIds: [] as number[],
+  gender: 0 as number,
 })
+
+/** 性别字典 (0=未知 1=男 2=女) */
+const genderOptions = ref<Array<{ value: number; label: string }>>([])
 
 /** 分配角色对话框 */
 const assignRoleDialogVisible = ref(false)
@@ -149,6 +157,19 @@ const assignRoleSaving = ref(false)
 /** 批量选择 */
 const selectedUserIds = ref<number[]>([])
 const batchDeleting = ref(false)
+
+/**
+ * 左侧"组织架构"区折叠状态 (默认展开).
+ * <p>折叠行为参考左侧导航菜单: 整个 aside 向左收起并淡出, 同时右侧出现一个浮动"展开"按钮.
+ * <p>展开 / 折叠都带平滑过渡 (width + opacity + transform).
+ * <p>持久化到 localStorage: rbac.user.deptPanelCollapsed.
+ */
+const deptPanelCollapsed = ref<boolean>(localStorage.getItem('rbac.user.deptPanelCollapsed') === '1')
+
+function toggleDeptPanel() {
+  deptPanelCollapsed.value = !deptPanelCollapsed.value
+  localStorage.setItem('rbac.user.deptPanelCollapsed', deptPanelCollapsed.value ? '1' : '0')
+}
 
 /** 当前登录用户 */
 const authStore = useAuthStore()
@@ -237,6 +258,7 @@ function resetUserForm() {
   editingUserIsDeveloper.value = false
   userForm.username = ''
   userForm.nickname = ''
+  userForm.realName = ''
   userForm.phone = ''
   userForm.email = ''
   userForm.userType = 'NORMAL'
@@ -244,6 +266,7 @@ function resetUserForm() {
   userForm.password = ''
   userForm.departmentId = null
   userForm.roleIds = []
+  userForm.gender = 0
   // 同步 popover 输入框
   deptTreeCheckedId.value = null
   deptInputDisplay.value = ''
@@ -265,6 +288,7 @@ async function openEditUser(user: any) {
   editingUserIsDeveloper.value = user.username === 'developer' || user.userType === 'DEVELOPER'
   userForm.username = user.username
   userForm.nickname = user.nickname
+  userForm.realName = user.realName ?? ''
   userForm.phone = user.phone || ''
   userForm.email = user.email || ''
   userForm.userType = user.userType
@@ -272,6 +296,7 @@ async function openEditUser(user: any) {
   userForm.password = ''
   userForm.departmentId = user.departmentId ?? null
   userForm.roleIds = [...(user.roleIds || [])]
+  userForm.gender = user.gender ?? 0
   // 同步 popover 输入框 + 选中状态
   deptTreeCheckedId.value = userForm.departmentId
   syncDeptDisplay()
@@ -520,7 +545,13 @@ watch(deptPopoverVisible, async (val) => {
   }
 })
 
-onMounted(loadDashboard)
+onMounted(() => {
+  // 性别字典: 编辑用户时可选; 失败不影响主流程
+  fetchRbacGenderOptions()
+    .then((opts) => (genderOptions.value = opts))
+    .catch(() => {})
+  loadDashboard()
+})
 </script>
 
 <template>
@@ -537,53 +568,90 @@ onMounted(loadDashboard)
         <!--
           左侧: 部门树 (含公司根节点).
           点根节点 = 全公司 (不按部门过滤); 点子部门 = 后端按部门及后代递归过滤.
+          折叠行为: 整个 aside 向左收起 (width → 0, opacity → 0, 略向左滑),
+          折叠后原位置出现一个浮动"展开组织架构"按钮, 像左侧导航菜单一样.
         -->
-        <aside class="dept-tree-panel">
+        <aside class="dept-tree-panel" :class="{ 'is-collapsed': deptPanelCollapsed }">
           <div class="dept-tree-header">
-            <el-icon :size="16" color="#409eff"><OfficeBuilding /></el-icon>
-            <span>组织架构</span>
-            <el-button
-              v-if="selectedDeptId != null"
-              link
-              type="primary"
-              size="small"
-              @click="clearDeptFilter"
-            >清除筛选</el-button>
+            <el-icon v-if="!deptPanelCollapsed" :size="16" color="#409eff"><OfficeBuilding /></el-icon>
+            <span v-if="!deptPanelCollapsed">组织架构</span>
+            <!-- 折叠瞬间的过渡占位, 让 panel 在收起过程中仍有标题 (会被 overflow:hidden 裁掉) -->
+            <span v-else class="dept-tree-title-vertical">组织架构</span>
+            <div class="dept-tree-header__actions">
+              <el-button
+                v-if="!deptPanelCollapsed && selectedDeptId != null"
+                link
+                type="primary"
+                size="small"
+                @click="clearDeptFilter"
+              >清除筛选</el-button>
+              <el-tooltip :content="deptPanelCollapsed ? '展开组织架构' : '折叠组织架构'" placement="right">
+                <el-button
+                  link
+                  type="primary"
+                  :icon="deptPanelCollapsed ? Expand : Fold"
+                  @click="toggleDeptPanel"
+                />
+              </el-tooltip>
+            </div>
           </div>
-          <el-input
-            v-model="deptTreeKeyword"
-            placeholder="搜索部门"
-            :prefix-icon="Search"
-            clearable
-            size="small"
-            class="dept-tree-search"
-          />
-          <el-tree
-            ref="deptTreeRef"
-            class="dept-tree"
-            :data="deptTree"
-            :props="deptTreeProps"
-            node-key="id"
-            :filter-node-method="filterDeptNode"
-            :default-expand-all="true"
-            :expand-on-click-node="false"
-            :highlight-current="true"
-            :current-node-key="selectedDeptId ?? undefined"
-            @node-click="onDeptNodeClick"
-          >
-            <template #default="{ node, data }">
-              <span class="dept-tree-node-label">
-                <el-icon :size="14" color="#909399">
-                  <OfficeBuilding v-if="data.parentId === 0" />
-                  <UserFilled v-else />
-                </el-icon>
-                <span :class="{ 'dept-tree-node-root': data.parentId === 0 }">
-                  {{ node.label }}
+          <div v-show="!deptPanelCollapsed" class="dept-tree-body">
+            <el-input
+              v-model="deptTreeKeyword"
+              placeholder="搜索部门"
+              :prefix-icon="Search"
+              clearable
+              size="small"
+              class="dept-tree-search"
+            />
+            <el-tree
+              ref="deptTreeRef"
+              class="dept-tree"
+              :data="deptTree"
+              :props="deptTreeProps"
+              node-key="id"
+              :filter-node-method="filterDeptNode"
+              :default-expand-all="true"
+              :expand-on-click-node="false"
+              :highlight-current="true"
+              :current-node-key="selectedDeptId ?? undefined"
+              @node-click="onDeptNodeClick"
+            >
+              <template #default="{ node, data }">
+                <span class="dept-tree-node-label">
+                  <el-icon :size="14" color="#909399">
+                    <OfficeBuilding v-if="data.parentId === 0" />
+                    <UserFilled v-else />
+                  </el-icon>
+                  <span :class="{ 'dept-tree-node-root': data.parentId === 0 }">
+                    {{ node.label }}
+                  </span>
                 </span>
-              </span>
-            </template>
-          </el-tree>
+              </template>
+            </el-tree>
+          </div>
         </aside>
+
+        <!--
+          永久展开 / 折叠开关: 始终位于原 panel 与右侧用户列表的"夹缝"中, 垂直居中.
+          <p>箭头方向随状态切换:
+          <p>- 展开态 → ArrowLeft (指向左, 提示"点击可向左折叠")
+          <p>- 折叠态 → ArrowRight (指向右, 提示"点击可向右展开")
+          <p>宽度窄 (~18px), 透明背景, 不挡内容; hover 时浅蓝高亮.
+          <p>不再用 v-if 隐藏, 让用户随时可见操作入口.
+        -->
+        <button
+          class="dept-panel-handle"
+          type="button"
+          :aria-label="deptPanelCollapsed ? '展开组织架构' : '折叠组织架构'"
+          :title="deptPanelCollapsed ? '展开组织架构' : '折叠组织架构'"
+          @click="toggleDeptPanel"
+        >
+          <el-icon :size="13">
+            <ArrowRight v-if="deptPanelCollapsed" />
+            <ArrowLeft v-else />
+          </el-icon>
+        </button>
 
         <!-- 右侧: 用户列表 -->
         <main class="user-table-panel">
@@ -639,6 +707,14 @@ onMounted(loadDashboard)
             </el-table-column>
             <el-table-column prop="username" label="用户名" min-width="120" />
             <el-table-column prop="nickname" label="昵称" min-width="120" />
+            <el-table-column prop="realName" label="真实姓名" min-width="120" show-overflow-tooltip />
+            <el-table-column label="性别" min-width="80" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.gender === 1" size="small" type="primary" effect="plain">男</el-tag>
+                <el-tag v-else-if="row.gender === 2" size="small" type="danger" effect="plain">女</el-tag>
+                <span v-else class="text-muted">未知</span>
+              </template>
+            </el-table-column>
             <el-table-column label="部门" min-width="160" show-overflow-tooltip>
               <template #default="{ row }">
                 <span v-if="row.departmentName">{{ row.departmentName }}</span>
@@ -681,7 +757,11 @@ onMounted(loadDashboard)
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" min-width="170" />
-            <el-table-column label="操作" min-width="240" fixed="right">
+            <!--
+              操作列: 4 个 icon 按钮 (编辑 / 分配角色 / 重置密码 / 删除) 各 ~32px
+              <p>固定 width=180, 刚好放下 4 个 icon 按钮 + 表格内边距, 不留多余空白
+            -->
+            <el-table-column label="操作" width="180" fixed="right">
               <template #default="{ row }">
                 <el-tooltip :content="isLockedRow(row) ? '该用户 (developer / super_admin) 是系统保留, 不允许编辑' : '编辑'" placement="top">
                   <el-button link type="primary" :icon="Edit" :disabled="isLockedRow(row)" @click="openEditUser(row)" />
@@ -742,6 +822,19 @@ onMounted(loadDashboard)
         </el-form-item>
         <el-form-item label="昵称">
           <el-input v-model="userForm.nickname" />
+        </el-form-item>
+        <el-form-item label="真实姓名" required>
+          <el-input
+            v-model="userForm.realName"
+            maxlength="50"
+            show-word-limit
+            placeholder="请输入用户真实姓名"
+          />
+        </el-form-item>
+        <el-form-item label="性别">
+          <el-select v-model="userForm.gender" placeholder="选择性别" clearable>
+            <el-option v-for="opt in genderOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+          </el-select>
         </el-form-item>
         <el-form-item label="所属部门">
           <!--
@@ -940,11 +1033,15 @@ onMounted(loadDashboard)
 /* =====================================================================
  * 左树右表布局
  * <p>左侧: 部门树 (含公司根节点), 右侧: 用户列表
+ * <p>左侧面板参考左侧导航菜单: 可向左整体收起, 带平滑过渡动画
  * ===================================================================== */
 .user-layout {
   display: flex;
-  gap: 16px;
+  gap: 0;
   min-height: 600px;
+  align-items: stretch;
+  /* 让绝对定位的 .dept-panel-handle 参照此容器 (而不是 body / 最近的定位祖先) */
+  position: relative;
 }
 .dept-tree-panel {
   width: 260px;
@@ -955,6 +1052,22 @@ onMounted(loadDashboard)
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 主过渡: width / opacity / transform 一起动, 像 nav menu 一样 */
+  transition:
+    width 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.28s ease,
+    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.28s ease;
+  opacity: 1;
+  transform: translateX(0);
+}
+.dept-tree-panel.is-collapsed {
+  width: 0;
+  border-color: transparent;
+  opacity: 0;
+  /* 折叠瞬间再向左滑 12px, 形成"向左收起"的方向感 */
+  transform: translateX(-12px);
+  pointer-events: none;
 }
 .dept-tree-header {
   display: flex;
@@ -966,9 +1079,36 @@ onMounted(loadDashboard)
   font-weight: 600;
   font-size: 13px;
   color: #1f2937;
+  flex-shrink: 0;
 }
-.dept-tree-header > span {
+.dept-tree-header > span:not(.dept-tree-header__actions) {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dept-tree-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+/* 折叠瞬间占位: 极窄宽度下用竖排标题 (会随 panel 一起被裁掉) */
+.dept-tree-title-vertical {
+  writing-mode: vertical-rl;
+  letter-spacing: 4px;
+  color: #409eff;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+}
+.dept-tree-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 .dept-tree-search {
   margin: 8px 12px 4px;
@@ -992,6 +1132,43 @@ onMounted(loadDashboard)
   color: #409eff;
   letter-spacing: 0.3px;
 }
+
+/* 永久展开 / 折叠开关: 始终存在的窄小箭头按钮, 嵌在 panel 与用户列表的"夹缝"中.
+ * <p>展开态: 箭头向左 (提示可折叠); 折叠态: 箭头向右 (提示可展开).
+ * <p>作为 flex item 处于布局流中, 跟随 panel 的 width 变化自动左右挪位.
+ * <p>垂直居中, 宽度窄 (~18px), 透明背景, 不挡内容.
+ */
+.dept-panel-handle {
+  flex-shrink: 0;
+  align-self: center;
+  width: 18px;
+  height: 48px;
+  margin: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #909399;
+  font-size: 0;
+  line-height: 1;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+.dept-panel-handle:hover {
+  background: #ecf5ff;
+  color: #409eff;
+  border-color: #d6e8ff;
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.12);
+}
+.dept-panel-handle:active {
+  background: #d6e8ff;
+  color: #409eff;
+}
+
 .user-table-panel {
   flex: 1;
   min-width: 0;

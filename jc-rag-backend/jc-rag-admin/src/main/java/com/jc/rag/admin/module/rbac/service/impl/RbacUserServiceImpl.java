@@ -123,6 +123,7 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         u.setUserType(param.getUserType());
         u.setStatus(param.getStatus() == null ? 1 : param.getStatus());
         u.setDepartmentId(param.getDepartmentId());
+        u.setGender(normalizeGender(param.getGender()));
         String pwd = param.getPassword();
         if (pwd == null || pwd.isEmpty()) pwd = rbacDefaults.getDefaultPassword();
         u.setPasswordHash(passwordEncoder.encode(pwd));
@@ -148,6 +149,7 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         // P0 越权修复: 禁止更新 super_admin 用户
         rbac.assertNotOperatingSuperAdminUser(id, "更新");
         if (param.getNickname() != null) u.setNickname(param.getNickname());
+        if (param.getRealName() != null) u.setRealName(param.getRealName().trim());
         if (param.getEmail() != null) u.setEmail(param.getEmail());
         rbac.rejectReservedUserTypeChange(u.getUserType(), param.getUserType(), RbacConstants.OpType.UPDATE_USER);
         if (param.getUserType() != null) u.setUserType(param.getUserType());
@@ -157,6 +159,7 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
             u.setDepartmentId(param.getDepartmentId());
             replaceUserPrimaryDepartment(id, param.getDepartmentId());
         }
+        if (param.getGender() != null) u.setGender(normalizeGender(param.getGender()));
         boolean ok = updateById(u);
         if (param.getRoleIds() != null) {
             // P0 越权修复: 分配的每个 role 已绑定的 perm 必须 ⊆ 操作者自身权限
@@ -164,6 +167,23 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
             replaceUserRoles(u.getId(), param.getRoleIds());
         }
         return ok;
+    }
+
+    /** 性别字段归一化: 非法值视为 0 (未知) */
+    private static Integer normalizeGender(Integer v) {
+        if (v == null) return 0;
+        if (v == 1 || v == 2) return v;
+        return 0;
+    }
+
+    /** 性别枚举 → 文本 (0=未知 1=男 2=女) */
+    public static String genderText(Integer v) {
+        if (v == null) return "未知";
+        return switch (v) {
+            case 1 -> "男";
+            case 2 -> "女";
+            default -> "未知";
+        };
     }
 
     /**
@@ -273,7 +293,20 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
     @Override
     public List<java.util.Map<String, Object>> listUsersByDepartmentId(Long departmentId) {
         if (departmentId == null) return List.of();
-        return userDepartmentMapper.selectUsersByDepartmentId(departmentId);
+        // 单级直接关联 (不递归, 不含子部门用户), 用于"部门管理→显示部门用户"开关
+        return baseMapper.listUsersByDepartmentIdDirectly(departmentId);
+    }
+
+    @Override
+    public RbacUserVO getUserDetail(Long userId) {
+        Map<String, Object> row = baseMapper.selectUserDetailById(userId);
+        if (row == null || row.isEmpty()) {
+            throw new ResourceNotFoundException("rbac.user.notfound", userId);
+        }
+        RbacUserVO v = toUserVO(row);
+        v.setCreatedAt(toLocalDateTime(getStr(row, "createdAt", "created_at")));
+        v.setGenderText(genderText(v.getGender()));
+        return v;
     }
 
     @Override
@@ -365,12 +398,15 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         v.setId(toLong(getStr(row, "id", "id")));
         v.setUsername(getStr(row, "username", "username"));
         v.setNickname(getStr(row, "nickname", "nickname"));
+        v.setRealName(getStr(row, "realName", "real_name"));
         v.setPhone(getStr(row, "phone", "phone"));
         v.setEmail(getStr(row, "email", "email"));
         v.setStatus(toInt(getStr(row, "status", "status")));
         v.setStatusText(rbac.statusText(v.getStatus()));
         v.setUserType(getStr(row, "userType", "user_type"));
         v.setUserTypeText(rbac.userTypeText(v.getUserType()));
+        v.setGender(toInt(getStr(row, "gender", "gender")));
+        v.setGenderText(genderText(v.getGender()));
         v.setDepartmentId(toLong(getStr(row, "departmentId", "department_id")));
         v.setDepartmentName(getStr(row, "departmentName", "department_name"));
         v.setCreatedAt(toLocalDateTime(getStr(row, "createdAt", "created_at")));

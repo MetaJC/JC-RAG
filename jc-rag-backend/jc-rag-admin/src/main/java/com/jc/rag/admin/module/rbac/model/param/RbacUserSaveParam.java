@@ -3,6 +3,7 @@ package com.jc.rag.admin.module.rbac.model.param;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
@@ -13,6 +14,13 @@ public class RbacUserSaveParam {
 
     @NotBlank(message = "昵称不能为空")
     private String nickname;
+
+    /**
+     * 真实姓名 (与昵称区分, 用户列表 / 详情弹窗展示).
+     * <p>前端必填, 后端仅校验长度; 历史数据允许空字符串.
+     */
+    @Size(max = 50, message = "真实姓名长度不能超过 50")
+    private String realName;
 
     private String phone;
 
@@ -30,6 +38,11 @@ public class RbacUserSaveParam {
      * 主部门 id (可空, 表示未分配主部门)
      */
     private Long departmentId;
+
+    /**
+     * 性别 (0=未知 1=男 2=女, 可空; 不传视为 0)
+     */
+    private Integer gender;
 
     /**
      * 角色 ID 列表。
@@ -51,6 +64,14 @@ public class RbacUserSaveParam {
 
     public void setNickname(String nickname) {
         this.nickname = nickname;
+    }
+
+    public String getRealName() {
+        return realName;
+    }
+
+    public void setRealName(String realName) {
+        this.realName = realName;
     }
 
     public String getPhone() {
@@ -99,6 +120,14 @@ public class RbacUserSaveParam {
 
     public void setDepartmentId(Long departmentId) {
         this.departmentId = departmentId;
+    }
+
+    public Integer getGender() {
+        return gender;
+    }
+
+    public void setGender(Integer gender) {
+        this.gender = gender;
     }
 
     public List<Long> getRoleIds() {

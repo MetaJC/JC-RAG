@@ -32,6 +32,10 @@ public class RbacUserEntity {
      */
     private String nickname;
     /**
+     * 真实姓名 (与昵称区分, 后台用户列表 / 详情弹窗展示)
+     */
+    private String realName;
+    /**
      * 手机号
      */
     private String phone;
@@ -51,6 +55,10 @@ public class RbacUserEntity {
      * 主部门 id (冗余, 真实关联见 rbac_user_department 表)
      */
     private Long departmentId;
+    /**
+     * 性别 (0=未知 1=男 2=女)
+     */
+    private Integer gender;
     /**
      * 最近登录时间
      */
@@ -104,6 +112,14 @@ public class RbacUserEntity {
         nickname = v;
     }
 
+    public String getRealName() {
+        return realName;
+    }
+
+    public void setRealName(String v) {
+        realName = v;
+    }
+
     public String getPhone() {
         return phone;
     }
@@ -142,6 +158,14 @@ public class RbacUserEntity {
 
     public void setDepartmentId(Long v) {
         departmentId = v;
+    }
+
+    public Integer getGender() {
+        return gender;
+    }
+
+    public void setGender(Integer v) {
+        gender = v;
     }
 
     public LocalDateTime getLastLoginTime() {

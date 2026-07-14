@@ -77,4 +77,17 @@ public interface RbacUserMapper extends BaseMapper<RbacUserEntity> {
 
     /** 查询登录失败次数（用户不存在返回 0） */
     Integer selectLoginFailCount(@Param("username") String username);
+
+    /**
+     * 单级部门直接关联用户 (仅 rbac_user_department 表 department_id=#{departmentId} 命中).
+     * <p>不递归, 不查主部门冗余字段, 不含子部门用户; 已排除 developer / super_admin.
+     * <p>用于"部门管理→显示部门用户"开关展开时拉取.
+     */
+    List<Map<String, Object>> listUsersByDepartmentIdDirectly(@Param("departmentId") Long departmentId);
+
+    /**
+     * 单用户详情 (含部门名 / 登录时间等, 不含 passwordHash).
+     * <p>用于"部门树内点用户 nickname → 弹窗显示用户详情".
+     */
+    Map<String, Object> selectUserDetailById(@Param("userId") Long userId);
 }

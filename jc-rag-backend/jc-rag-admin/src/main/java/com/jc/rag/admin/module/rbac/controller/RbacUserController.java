@@ -68,4 +68,34 @@ public class RbacUserController {
     public R<Boolean> assignRoles(@PathVariable Long id, @RequestBody @Valid RbacUserAssignRoleParam param) {
         return R.ok(rbacUserService.replaceUserRoles(id, param.getRoleIds()));
     }
+
+    /**
+     * 单用户详情 (只读), 用于"部门管理→部门树内点用户 nickname"弹窗.
+     * <p>不返回 passwordHash, 含性别 / 部门名 / 登录时间等展示字段.
+     */
+    @GetMapping("/{id}/detail")
+    public R<RbacUserVO> detail(@PathVariable Long id) {
+        return R.ok(rbacUserService.getUserDetail(id));
+    }
+
+    /**
+     * 性别字典 (0=未知 1=男 2=女), 前端下拉 / 列表展示用.
+     */
+    @GetMapping("/gender-options")
+    public R<java.util.List<java.util.Map<String, Object>>> genderOptions() {
+        return R.ok(java.util.List.of(
+                java.util.Map.of("value", 0, "label", "未知"),
+                java.util.Map.of("value", 1, "label", "男"),
+                java.util.Map.of("value", 2, "label", "女")
+        ));
+    }
+
+    /**
+     * 单级部门直接关联用户 (不递归, 不含子部门用户).
+     * <p>用于"部门管理→显示部门用户"开关展开时拉取, 已排除 developer / super_admin.
+     */
+    @GetMapping("/list-by-department/{deptId}")
+    public R<java.util.List<java.util.Map<String, Object>>> listByDepartment(@PathVariable Long deptId) {
+        return R.ok(rbacUserService.listUsersByDepartmentId(deptId));
+    }
 }

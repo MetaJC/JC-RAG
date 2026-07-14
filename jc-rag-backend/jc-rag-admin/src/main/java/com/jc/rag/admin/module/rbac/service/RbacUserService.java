@@ -90,4 +90,10 @@ public interface RbacUserService extends BaseService<RbacUserEntity> {
      * @return true=成功
      */
     boolean assignUsersToDepartment(Long departmentId, List<Long> userIds);
+
+    /**
+     * 单用户详情 (只读 VO), 用于"部门树内点用户 nickname → 弹窗显示用户详情".
+     * <p>不返回 passwordHash, 含部门名 / 性别 / 状态等展示字段.
+     */
+    RbacUserVO getUserDetail(Long userId);
 }

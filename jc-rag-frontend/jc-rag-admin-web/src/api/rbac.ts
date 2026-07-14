@@ -196,6 +196,57 @@ export async function assignRbacDepartmentUsers(deptId: number, userIds: number[
   return data
 }
 
+/**
+ * 单级部门直接关联用户 (含 id / username / nickname / gender / phone / email / status / userType).
+ * <p>不递归, 不含子部门用户; 已排除 developer / super_admin.
+ * <p>用于"部门管理→显示部门用户"开关展开时拉取.
+ */
+export async function fetchRbacDepartmentUsers(deptId: number) {
+  const { data } = await request.get(`/rbac/user/list-by-department/${deptId}`)
+  return (data ?? []) as Array<{
+    id: number
+    username: string
+    nickname: string
+    gender: number
+    phone?: string
+    email?: string
+    status: number
+    userType: string
+  }>
+}
+
+/**
+ * 单用户详情 (只读 VO, 不含 passwordHash).
+ * <p>用于"部门管理→部门树内点用户 nickname"弹窗.
+ */
+export async function fetchRbacUserDetail(userId: number) {
+  const { data } = await request.get(`/rbac/user/${userId}/detail`)
+  return data as {
+    id: number
+    username: string
+    nickname: string
+    gender: number
+    genderText?: string
+    phone?: string
+    email?: string
+    status: number
+    statusText?: string
+    userType: string
+    userTypeText?: string
+    departmentId?: number
+    departmentName?: string
+    lastLoginTime?: string
+    lastLoginIp?: string
+    createdAt?: string
+  }
+}
+
+/** 性别字典 (0=未知 1=男 2=女) */
+export async function fetchRbacGenderOptions() {
+  const { data } = await request.get('/rbac/user/gender-options')
+  return (data ?? []) as Array<{ value: number; label: string }>
+}
+
 export async function fetchRbacDepartment(id: number) {
   const { data } = await request.get(`/rbac/department/${id}`)
   return data

@@ -29,7 +29,7 @@
         <p>- 用子查询先按 user_id 聚合, 避免多兼职记录产生笛卡尔积
     -->
     <sql id="userListColumns">
-        SELECT u.id, u.username, u.nickname, u.phone, u.email, u.status, u.user_type,
+        SELECT u.id, u.username, u.nickname, u.real_name, u.gender, u.phone, u.email, u.status, u.user_type,
                u.last_login_time, u.last_login_ip, u.created_at,
                COALESCE(u.department_id, ud_first.min_dept_id) AS department_id,
                COALESCE(d_main.name, d_first.name) AS department_name,
@@ -130,6 +130,37 @@
 
     <select id="selectRoleIdsByUserId" resultType="java.lang.Long">
         SELECT role_id FROM rbac_user_role WHERE user_id = #{userId}
+    </select>
+
+    <!--
+        单级部门直接关联用户 (仅查 rbac_user_department 表中 department_id=#{departmentId} 的用户)
+        <p>不递归, 不查主部门冗余字段, 不包含子部门用户
+        <p>用于"部门管理→显示部门用户"开关展开时拉取
+        <p>排除 developer / super_admin 保留账号
+    -->
+    <select id="listUsersByDepartmentIdDirectly" resultType="java.util.LinkedHashMap">
+        SELECT u.id, u.username, u.nickname, u.gender, u.phone, u.email, u.status, u.user_type, u.created_at
+        FROM rbac_user u
+        INNER JOIN rbac_user_department ud ON ud.user_id = u.id
+        WHERE u.deleted = 0
+          AND u.username != 'developer'
+          AND u.username != 'super_admin'
+          AND ud.department_id = #{departmentId}
+        ORDER BY u.id ASC
+    </select>
+
+    <!--
+        单用户详情: 用于"部门树内点用户 nickname → 弹窗显示用户详情"
+        <p>包含全部展示字段, 不返回 passwordHash
+    -->
+    <select id="selectUserDetailById" resultType="java.util.LinkedHashMap">
+            SELECT u.id, u.username, u.nickname, u.real_name, u.gender, u.phone, u.email, u.status, u.user_type,
+                   u.department_id, d.name AS department_name,
+                   u.last_login_time, u.last_login_ip, u.created_at, u.updated_at
+            FROM rbac_user u
+        LEFT JOIN rbac_department d ON d.id = u.department_id
+        WHERE u.deleted = 0 AND u.id = #{userId}
+        LIMIT 1
     </select>
 
 </mapper>
