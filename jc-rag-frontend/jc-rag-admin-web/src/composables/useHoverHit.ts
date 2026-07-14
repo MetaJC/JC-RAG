@@ -6,14 +6,21 @@ export interface HoverTarget {
   expanded: boolean
 }
 
-export function useHoverHit() {
-  function findTargetRow(mouseX: number, mouseY: number, tableWrapper: HTMLElement): HoverTarget | null {
-    const doc = tableWrapper.ownerDocument
+export interface HoverRowMeta {
+  id: number
+  level: number
+  hasChildren: boolean
+  expanded: boolean
+}
+
+export function useHoverHit(getRowMeta: (id: number) => HoverRowMeta | null) {
+  function findTargetRow(mouseX: number, mouseY: number, tbody: HTMLElement): HoverTarget | null {
+    const doc = tbody.ownerDocument
     const elements = doc.elementsFromPoint(mouseX, mouseY)
     for (const el of elements) {
       if (el instanceof HTMLElement) {
-        const tr = el.closest('tr')
-        if (tr && tableWrapper.contains(tr)) {
+        const tr = el.closest('tr.el-table__row') as HTMLElement | null
+        if (tr && tbody.contains(tr)) {
           const rowData = extractRowData(tr)
           if (rowData) {
             return { element: tr, ...rowData }
@@ -21,25 +28,36 @@ export function useHoverHit() {
         }
       }
     }
-    return null
+    return findClosestRow(mouseY, tbody)
   }
 
-  function extractRowData(tr: HTMLElement): { id: number; level: number; hasChildren: boolean; expanded: boolean } | null {
-    const idAttr = tr.getAttribute('data-row-key')
-    const id = idAttr ? parseInt(idAttr, 10) : null
-    if (!id || isNaN(id)) return null
-
-    const nameCell = tr.querySelector('.dept-name-cell')
-    if (!nameCell) return null
-
-    const paddingLeft = (nameCell as HTMLElement).style.paddingLeft || '0px'
-    const level = Math.round(parseInt(paddingLeft, 10) / 24)
-
-    const hasChildren = !!tr.querySelector('.dept-expand-btn')
-    const expanded = !!tr.querySelector('.dept-expand-btn .el-icon--arrow-down')
-
-    return { id, level, hasChildren, expanded }
+  function extractDeptId(tr: HTMLElement): number | null {
+    const match = tr.className.match(/dept-row-(\d+)/)
+    return match ? Number(match[1]) : null
   }
 
-  return { findTargetRow }
+  function extractRowData(tr: HTMLElement): HoverRowMeta | null {
+    const id = extractDeptId(tr)
+    if (id == null) return null
+    return getRowMeta(id)
+  }
+
+  function findClosestRow(mouseY: number, tbody: HTMLElement): HoverTarget | null {
+    const rows = Array.from(tbody.querySelectorAll('tr.el-table__row')) as HTMLElement[]
+    let nearestRow: HTMLElement | null = null
+    let nearestDistance = Number.POSITIVE_INFINITY
+    for (const row of rows) {
+      const rect = row.getBoundingClientRect()
+      const distance = mouseY < rect.top ? rect.top - mouseY : mouseY > rect.bottom ? mouseY - rect.bottom : 0
+      if (distance < nearestDistance) {
+        nearestDistance = distance
+        nearestRow = row
+      }
+    }
+    if (!nearestRow) return null
+    const rowData = extractRowData(nearestRow)
+    return rowData ? { element: nearestRow, ...rowData } : null
+  }
+
+  return { findTargetRow, extractDeptId }
 }

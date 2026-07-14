@@ -4,7 +4,6 @@ export interface DropPositionResult {
   position: DropPosition
   targetId: number | null
   level: number
-  indentPx: number
   illegal: boolean
 }
 
@@ -12,40 +11,42 @@ export function useDropPosition(deadZone = 8) {
   let lastTargetId: number | null = null
   let lastPosition: DropPosition = null
 
-  function calculatePosition(target: HTMLElement, mouseY: number, level: number, insideAllowed: boolean): DropPositionResult {
+  function calculatePosition(target: HTMLElement, mouseY: number, level: number, insideAllowed = true): DropPositionResult {
     const rect = target.getBoundingClientRect()
     const height = rect.height || 1
     const mouseOffset = mouseY - rect.top
 
-    const zoneTop = height * 0.25
-    const zoneBottom = height * 0.75
+    const topZoneEnd = height * 0.25
+    const bottomZoneStart = height * 0.75
+    const middleLine = height / 2
 
     let position: DropPosition
-    if (mouseOffset <= zoneTop) {
+    if (mouseOffset <= topZoneEnd) {
       position = 'before'
-    } else if (mouseOffset >= zoneBottom) {
+    } else if (mouseOffset >= bottomZoneStart) {
       position = 'after'
     } else {
-      position = insideAllowed ? 'inner' : (mouseOffset < height / 2 ? 'before' : 'after')
+      position = insideAllowed ? 'inner' : mouseOffset < middleLine ? 'before' : 'after'
     }
 
-    const targetId = parseInt(target.getAttribute('data-row-key') || '0', 10) || null
+    const match = target.className.match(/dept-row-(\d+)/)
+    const targetId = match ? Number(match[1]) : null
 
     if (lastTargetId === targetId && lastPosition !== null) {
       if (lastPosition === 'before' && position === 'inner') {
-        if (mouseOffset < zoneTop + deadZone) {
+        if (mouseOffset <= topZoneEnd + deadZone) {
           position = 'before'
         }
       } else if (lastPosition === 'inner' && position === 'before') {
-        if (mouseOffset > zoneTop - deadZone) {
+        if (mouseOffset >= topZoneEnd - deadZone) {
           position = 'inner'
         }
       } else if (lastPosition === 'inner' && position === 'after') {
-        if (mouseOffset < zoneBottom + deadZone) {
+        if (mouseOffset <= bottomZoneStart + deadZone) {
           position = 'inner'
         }
       } else if (lastPosition === 'after' && position === 'inner') {
-        if (mouseOffset > zoneBottom - deadZone) {
+        if (mouseOffset >= bottomZoneStart - deadZone) {
           position = 'after'
         }
       }
@@ -55,13 +56,11 @@ export function useDropPosition(deadZone = 8) {
     lastPosition = position
 
     const finalLevel = position === 'inner' ? level + 1 : level
-    const indentPx = finalLevel * 24
 
     return {
       position,
       targetId,
       level: finalLevel,
-      indentPx,
       illegal: false,
     }
   }

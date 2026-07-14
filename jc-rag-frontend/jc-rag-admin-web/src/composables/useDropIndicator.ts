@@ -2,9 +2,12 @@ import type { DropPosition } from './useDropPosition'
 
 export interface IndicatorConfig {
   position: DropPosition
-  targetRect: DOMRect
-  indentPx: number
-  illegal: boolean
+  rowRect: DOMRect
+  lineLeft: number
+  lineWidth: number
+  boxLeft: number
+  boxWidth: number
+  boxHeight: number
 }
 
 export function useDropIndicator() {
@@ -17,6 +20,9 @@ export function useDropIndicator() {
 
     indicatorLayer = document.createElement('div')
     indicatorLayer.className = 'jc-dept-indicator-layer'
+    if (window.getComputedStyle(parent).position === 'static') {
+      parent.style.position = 'relative'
+    }
     parent.appendChild(indicatorLayer)
 
     lineEl = document.createElement('div')
@@ -31,38 +37,35 @@ export function useDropIndicator() {
   function update(config: IndicatorConfig) {
     if (!indicatorLayer || !lineEl || !boxEl) return
 
-    const { position, targetRect, indentPx, illegal } = config
-
-    lineEl.style.display = position === 'before' || position === 'after' ? 'block' : 'none'
-    boxEl.style.display = position === 'inner' ? 'block' : 'none'
-
-    if (illegal) {
-      lineEl.classList.add('jc-dept-indicator-illegal')
-      boxEl.classList.add('jc-dept-indicator-illegal')
-    } else {
-      lineEl.classList.remove('jc-dept-indicator-illegal')
-      boxEl.classList.remove('jc-dept-indicator-illegal')
-    }
-
+    const { position, rowRect, lineLeft, lineWidth, boxLeft, boxWidth, boxHeight } = config
     const layerRect = indicatorLayer.getBoundingClientRect()
-    const scrollLeft = indicatorLayer.parentElement?.scrollLeft || 0
 
     if (position === 'before' || position === 'after') {
-      const top = (position === 'before' ? targetRect.top : targetRect.bottom - 2) - layerRect.top
-      lineEl.style.transform = `translate(${indentPx - scrollLeft}px, ${top}px)`
-      lineEl.style.width = `${targetRect.width - indentPx - 24}px`
-    } else if (position === 'inner') {
-      const top = targetRect.top - layerRect.top
-      boxEl.style.transform = `translate(${indentPx - 24 - scrollLeft}px, ${top}px)`
-      boxEl.style.width = `${targetRect.width - indentPx + 24}px`
-      boxEl.style.height = `${targetRect.height}px`
+      const top = (position === 'before' ? rowRect.top : rowRect.bottom - 2) - layerRect.top
+      lineEl.style.opacity = '1'
+      boxEl.style.opacity = '0'
+      lineEl.style.transform = `translate3d(${lineLeft - layerRect.left}px, ${top}px, 0)`
+      lineEl.style.width = `${lineWidth}px`
+      return
     }
+
+    if (position === 'inner') {
+      const top = rowRect.top - layerRect.top + Math.max((rowRect.height - boxHeight) / 2, 0)
+      lineEl.style.opacity = '0'
+      boxEl.style.opacity = '1'
+      boxEl.style.transform = `translate3d(${boxLeft - layerRect.left}px, ${top}px, 0)`
+      boxEl.style.width = `${boxWidth}px`
+      boxEl.style.height = `${boxHeight}px`
+      return
+    }
+
+    hide()
   }
 
   function hide() {
     if (!lineEl || !boxEl) return
-    lineEl.style.display = 'none'
-    boxEl.style.display = 'none'
+    lineEl.style.opacity = '0'
+    boxEl.style.opacity = '0'
   }
 
   function cleanup() {

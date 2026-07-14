@@ -1,9 +1,9 @@
-export function useAutoExpand(delay = 600) {
+export function useAutoExpand(delay = 700) {
   let timer: ReturnType<typeof setTimeout> | null = null
   let pendingTargetId: number | null = null
 
-  function scheduleExpand(targetId: number, hasChildren: boolean, expanded: boolean, onExpand: (id: number) => void) {
-    if (!hasChildren || expanded) {
+  function scheduleExpand(targetId: number, enabled: boolean, onExpand: () => void) {
+    if (!enabled) {
       clear()
       return
     }
@@ -15,7 +15,7 @@ export function useAutoExpand(delay = 600) {
 
     timer = setTimeout(() => {
       if (pendingTargetId === targetId) {
-        onExpand(targetId)
+        onExpand()
       }
       clear()
     }, delay)

@@ -1,10 +1,13 @@
 export function useAutoScroll(edgeThreshold = 50, maxSpeed = 20) {
   let rafId: number | null = null
   let scrollContainer: HTMLElement | null = null
-  let targetMouseY: number = 0
+  let targetMouseY = 0
+  let onScrollFrame: (() => void) | null = null
 
-  function start(container: HTMLElement) {
+  function start(container: HTMLElement, onFrame?: () => void) {
+    stop()
     scrollContainer = container
+    onScrollFrame = onFrame ?? null
     animate()
   }
 
@@ -34,6 +37,7 @@ export function useAutoScroll(edgeThreshold = 50, maxSpeed = 20) {
 
     if (scrollSpeed !== 0) {
       scrollContainer.scrollTop += scrollSpeed
+      onScrollFrame?.()
     }
 
     rafId = requestAnimationFrame(animate)
@@ -44,6 +48,7 @@ export function useAutoScroll(edgeThreshold = 50, maxSpeed = 20) {
       cancelAnimationFrame(rafId)
       rafId = null
     }
+    onScrollFrame = null
     scrollContainer = null
   }
 
