@@ -21,14 +21,16 @@ import {
   CircleClose,
   Connection,
   Delete,
+  Document,
   Edit,
   Expand,
+  FolderOpened,
   Fold,
   OfficeBuilding,
   Plus,
-  Rank,
   Refresh,
   Search,
+  Sort,
   User,
 } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
@@ -192,6 +194,14 @@ function toggleExpand(row: FlatDept) {
   expandedIds.value = next
 }
 
+/**
+ * el-table row-class-name: 给每行加 dept-row-{id} class,
+ * <p>用于拖拽时通过 className 反查部门 id (SortableJS evt.item 没有 data-*).
+ */
+function rowClassName({ row }: { row: FlatDept }): string {
+  return `dept-row-${row.id}`
+}
+
 function expandAll() {
   expandedIds.value = new Set(collectAllIds(deptTree.value))
 }
@@ -243,102 +253,241 @@ async function submit() {
 /* =====================================================================
  * 行拖拽 (SortableJS + el-table 扁平列表)
  * <p>扁平列表上拖动, 按物理位置计算 newParentId / newSort.
+ * <p>位置视觉提示 (before/inner) 不依赖 SortableJS onMove (forceFallback 模式下不可靠),
+ * 改用全局 mousemove 监听器 + elementsFromPoint 自己命中目标 tr.
+ * <p>核心交互 (参考 Ruoyi 菜单拖拽):
+ * <ul>
+ *   <li>鼠标在目标行 B 的下半部分 (Y >= 50%) → B 整行蓝框 → A 将成为 B 的子级</li>
+ *   <li>鼠标在目标行 B 的上半部分 (Y < 50%) → B 上边界蓝线 → A 将成为 B 的同级, 排在 B 之前</li>
+ *   <li>鼠标在 tbody 内的行间隙 (两行之间) → 间隙蓝线 → A 将成为同级, 排在间隙之后的行之前</li>
+ *   <li>上下移动切换目标行/间隙; 左右移动不直接影响视觉</li>
+ *   <li>禁止拖到源行自身 / 源部门的后代 (循环)</li>
+ * </ul>
  * ===================================================================== */
 
 let sortableInstance: Sortable | null = null
-const sortPos = ref<'before' | 'inner' | 'after'>('after')
 
-function clearDropHints() {
-  document
-    .querySelectorAll('.dept-drop-before, .dept-drop-inner, .dept-drop-after')
-    .forEach((el) => {
-      el.classList.remove('dept-drop-before', 'dept-drop-inner', 'dept-drop-after')
-      // 同步清除 inline style (兜底, 避免 el-table 内部样式覆盖)
-      const node = el as HTMLElement
-      node.style.boxShadow = ''
-      node.style.backgroundColor = ''
-      node.querySelectorAll('td').forEach((td) => {
-        ;(td as HTMLElement).style.backgroundColor = ''
-      })
-    })
+/** 全局 mousemove 监听器引用, 拖动开始挂载, 结束卸载 */
+let moveListener: ((e: MouseEvent) => void) | null = null
+
+/** 拖动开始时的源行 (dragged 行) */
+let sourceTr: HTMLElement | null = null
+
+/** 拖动开始时源行在 flatList 中的索引 (用于调用接口时定位被拖动部门) */
+let sourceOldIndex = -1
+
+/** 当前鼠标位置的拖放提示状态 */
+type DropMode = 'inner' | 'before' | 'none'
+let dropMode: DropMode = 'none'
+/** 蓝框所在的 tr (inner 模式) */
+let dropTargetTr: HTMLElement | null = null
+/** 蓝线所在的 tr (before 模式: 蓝线在该 tr 上边界) */
+let dropGapTr: HTMLElement | null = null
+
+/**
+ * 从 tr 的 className 解析部门 id.
+ * <p>el-table 不支持 data-* 属性传给 tr, 用 row-class-name 加 dept-row-{id} class.
+ */
+function getDeptIdFromTr(tr: HTMLElement | null | undefined): number | null {
+  if (!tr) return null
+  const cls = tr.className || ''
+  const m = cls.match(/dept-row-(\d+)/)
+  return m ? Number(m[1]) : null
 }
 
-function handleSortMove(evt: Sortable.MoveEvent, originalEvent?: Event) {
-  const related = evt.related as HTMLElement
-  if (!related) return true
-  // SortableJS evt.related 可能是 td 或 tr, 统一找 tr
-  let tr = related
-  if (tr.tagName !== 'TR') {
-    const closest = tr.closest('tr')
-    if (!closest) return true
-    tr = closest as HTMLElement
+/**
+ * 全局 mousemove: 命中鼠标下的 tr, 判定 inner/before, 应用视觉.
+ */
+function handleGlobalMove(e: MouseEvent) {
+  if (!sourceTr) return
+
+  const tbody = sourceTr.closest('tbody') as HTMLElement | null
+  if (!tbody) {
+    clearDropHints()
+    return
   }
+
+  // 隐藏 drag 元素以便 elementsFromPoint 命中真实目标
+  // (forceFallback 模式下 drag 元素有 pointer-events:none, 这里再次兜底)
+  const elems = document.elementsFromPoint(e.clientX, e.clientY)
+  let tr: HTMLElement | null = null
+  for (const el of elems) {
+    const t = (el as HTMLElement).closest?.('tr.el-table__row') as HTMLElement | null
+    if (t && tbody.contains(t)) {
+      tr = t
+      break
+    }
+  }
+
+  // 鼠标不在任何 tr 上 → 视为 tbody 内行间隙 → 找最近的 tr (在它之上)
+  if (!tr) {
+    handleGapMove(e, tbody)
+    return
+  }
+
+  // 不能拖到源行自身
+  if (tr === sourceTr) {
+    clearDropHints()
+    return
+  }
+
+  const targetDeptId = getDeptIdFromTr(tr)
+  if (targetDeptId == null) {
+    clearDropHints()
+    return
+  }
+
+  // 禁止拖到源部门的后代 (循环)
+  const dragged = flatList.value[sourceOldIndex]
+  if (dragged && isDescendantOrSelf(dragged.id, targetDeptId, deptTree.value)) {
+    clearDropHints()
+    return
+  }
+
+  // 计算鼠标在 tr 内的 Y 位置 → inner(下半) / before(上半)
   const rect = tr.getBoundingClientRect()
-  const oe = originalEvent as MouseEvent | undefined
-  const mouseY = oe?.clientY ?? rect.top + rect.height / 2
-  const offset = mouseY - rect.top
+  const offsetY = e.clientY - rect.top
   const h = rect.height || 1
-  let pos: 'before' | 'inner' | 'after'
-  if (offset < h * 0.25) pos = 'before'
-  else if (offset > h * 0.75) pos = 'after'
-  else pos = 'inner'
-  sortPos.value = pos
+
+  // 清理旧视觉
   clearDropHints()
-  tr.classList.add(`dept-drop-${pos}`)
-  // 兜底: inline style 优先级最高, 避免 el-table 内部样式 (tr/td 的 background-color, box-shadow) 覆盖
-  if (pos === 'before') {
-    tr.style.boxShadow = 'inset 0 3px 0 0 #409eff'
-  } else if (pos === 'after') {
-    tr.style.boxShadow = 'inset 0 -3px 0 0 #409eff'
+
+  if (offsetY < h * 0.5) {
+    // 上半: 蓝线在该 tr 上边界
+    tr.classList.add('dept-drop-gap-top')
+    dropMode = 'before'
+    dropGapTr = tr
   } else {
-    tr.style.boxShadow = 'inset 0 0 0 2px #409eff'
-    tr.style.backgroundColor = '#e6f2ff'
-    tr.querySelectorAll('td').forEach((td) => {
-      ;(td as HTMLElement).style.backgroundColor = '#e6f2ff'
-    })
+    // 下半: 蓝框
+    tr.classList.add('dept-drop-target')
+    dropMode = 'inner'
+    dropTargetTr = tr
   }
-  return true
+}
+
+/**
+ * 鼠标不在任何 tr 上时, 按 Y 位置找最近的两个 tr,
+ * <p>蓝线画在"上方 tr 下边界"或"下方 tr 上边界" (间隙指示).
+ */
+function handleGapMove(e: MouseEvent, tbody: HTMLElement) {
+  const rows = Array.from(tbody.querySelectorAll('tr.el-table__row')) as HTMLElement[]
+  if (!rows.length) {
+    clearDropHints()
+    return
+  }
+  // 跳过源行
+  const candidates = rows.filter((r) => r !== sourceTr)
+  if (!candidates.length) {
+    clearDropHints()
+    return
+  }
+  let prevTr: HTMLElement | null = null
+  let nextTr: HTMLElement | null = null
+  for (const r of candidates) {
+    const rect = r.getBoundingClientRect()
+    if (e.clientY < rect.top) {
+      nextTr = r
+      break
+    }
+    prevTr = r
+  }
+  // 优先级: 鼠标上方有 tr → 蓝线在该 tr 下边界; 否则在 nextTr 上边界
+  if (prevTr) {
+    clearDropHints()
+    prevTr.classList.add('dept-drop-gap-bottom')
+    dropMode = 'before'
+    dropGapTr = prevTr
+  } else if (nextTr) {
+    clearDropHints()
+    nextTr.classList.add('dept-drop-gap-top')
+    dropMode = 'before'
+    dropGapTr = nextTr
+  } else {
+    clearDropHints()
+  }
+}
+
+function clearDropHints() {
+  if (dropTargetTr) {
+    dropTargetTr.classList.remove('dept-drop-target')
+    dropTargetTr = null
+  }
+  if (dropGapTr) {
+    dropGapTr.classList.remove('dept-drop-gap-top', 'dept-drop-gap-bottom')
+    dropGapTr = null
+  }
+  dropMode = 'none'
+}
+
+function attachMoveListener() {
+  if (!moveListener) {
+    moveListener = (e: MouseEvent) => handleGlobalMove(e)
+    document.addEventListener('mousemove', moveListener)
+  }
+}
+
+function detachMoveListener() {
+  if (moveListener) {
+    document.removeEventListener('mousemove', moveListener)
+    moveListener = null
+  }
+  // 清理目标位置视觉
+  clearDropHints()
+  // 清理源行视觉
+  if (sourceTr) {
+    sourceTr.classList.remove('dept-drop-source')
+    sourceTr = null
+  }
+  sourceOldIndex = -1
 }
 
 async function handleSortEnd(evt: Sortable.SortableEvent) {
-  clearDropHints()
   const oldIndex = evt.oldIndex ?? -1
-  const newIndex = evt.newIndex ?? -1
-  if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) {
-    await loadDeptTree()
-    await nextTick()
-    initSortable()
-    return
-  }
+  const releaseEvent = evt.originalEvent as MouseEvent | undefined
 
   const list = flatList.value
   const dragged = list[oldIndex]
-  const target = list[newIndex]
-  if (!dragged || !target) {
-    await loadDeptTree()
-    await nextTick()
-    initSortable()
-    return
-  }
-  if (dragged.id === target.id) {
+  // 记录被拖动部门 (detach 前快照)
+  const draggedSnapshot = dragged
+
+  // 清理视觉 + 解绑监听
+  detachMoveListener()
+
+  if (!draggedSnapshot) {
     await loadDeptTree()
     await nextTick()
     initSortable()
     return
   }
 
-  // 防回环: inner 拖入时 target 不能是 dragged 的后代
-  if (sortPos.value === 'inner' && isDescendantOrSelf(dragged.id, target.id, deptTree.value)) {
-    ElMessage.warning('不能将部门移动到自身或其子部门下')
+  // 没有命中有效目标: 保持原位
+  if (dropMode === 'none' || (!dropTargetTr && !dropGapTr)) {
     await loadDeptTree()
-    await nextTick()
-    initSortable()
     return
   }
 
+  // 计算目标部门和位置
+  const targetTr = dropTargetTr || dropGapTr
+  const targetDeptId = getDeptIdFromTr(targetTr)
+  if (targetDeptId == null) {
+    await loadDeptTree()
+    return
+  }
+  // 二次校验: 目标不能是源部门自身或后代
+  if (isDescendantOrSelf(draggedSnapshot.id, targetDeptId, deptTree.value)) {
+    ElMessage.warning('不能将部门移动到自身或其后代下')
+    await loadDeptTree()
+    return
+  }
+
+  const position = dropMode === 'inner' ? 'inner' : 'before'
   try {
-    await moveRbacDepartment(dragged.id, { targetId: target.id, position: sortPos.value })
-    ElMessage.success('部门已移动')
+    await moveRbacDepartment(draggedSnapshot.id, { targetId: targetDeptId, position })
+    ElMessage.success(
+      position === 'inner'
+        ? `已将 [${draggedSnapshot.name}] 移入目标部门下`
+        : `已将 [${draggedSnapshot.name}] 移动到目标位置 (同级)`
+    )
   } catch (e: any) {
     ElMessage.error(e?.message || '移动失败')
   } finally {
@@ -359,19 +508,26 @@ function initSortable() {
     sortableInstance = Sortable.create(tbody, {
       animation: 150,
       handle: '.dept-drag-handle',
-      // ghost: 源位置 (半透明 + 虚线轮廓, 视觉上空出)
       ghostClass: 'dept-sortable-ghost',
-      // chosen: 鼠标按下选中的源元素 (高亮提示)
       chosenClass: 'dept-sortable-chosen',
-      // drag: 跟随光标拖动的实际元素 (forceFallback=true 时在 body 下, 需全局样式)
       dragClass: 'dept-sortable-drag',
-      // 关键: forceFallback 让 drag 元素成为独立副本 (不被原位置元素样式污染),
-      // 同时 ghost 只影响原位置, 视觉分离更清晰
       forceFallback: true,
       fallbackOnBody: true,
       fallbackTolerance: 3,
-      onMove: handleSortMove,
-      onEnd: handleSortEnd,
+      onStart: (evt) => {
+        // 记录源行 + 源行索引
+        const item = evt.item as HTMLElement
+        sourceTr = item.closest('tr.el-table__row') as HTMLElement
+        sourceOldIndex = evt.oldIndex ?? -1
+        if (sourceTr) {
+          sourceTr.classList.add('dept-drop-source')
+        }
+        attachMoveListener()
+      },
+      onEnd: (evt) => {
+        detachMoveListener()
+        return handleSortEnd(evt)
+      },
     })
   })
 }
@@ -671,6 +827,7 @@ onBeforeUnmount(() => {
         border
         class="dept-table-wrap"
         empty-text="暂无部门"
+        :row-class-name="rowClassName"
       >
         <el-table-column label="部门名称" min-width="320">
           <template #default="{ row }">
@@ -686,7 +843,7 @@ onBeforeUnmount(() => {
               </el-icon>
               <span v-else class="dept-expand-placeholder" />
               <el-icon class="dept-drag-handle" :size="14" color="#c0c4cc">
-                <Rank />
+                <Sort />
               </el-icon>
               <el-icon
                 :size="14"
@@ -757,6 +914,7 @@ onBeforeUnmount(() => {
             placement="bottom-start"
             :width="380"
             trigger="manual"
+            :teleported="true"
             popper-class="jc-parent-tree-popover"
             @show="onParentPopoverShow"
             @hide="onParentPopoverHide"
@@ -951,9 +1109,7 @@ onBeforeUnmount(() => {
  * 必须用全局选择器才能命中. ghost 也在原位置, 同样需全局样式保证生效.
  */
 
-/* =====================================================================
- * 父级部门选择 popover
- * ===================================================================== */
+/* 父级部门 popover 面板内容样式 (不依赖 popper z-index) */
 .jc-parent-tree-panel {
   display: flex;
   flex-direction: column;
@@ -1035,7 +1191,11 @@ onBeforeUnmount(() => {
   cursor: grabbing !important;
 }
 .dept-sortable-drag {
-  /* 跟随光标的拖动元素 (forceFallback=true 时在 body 下) */
+  /* 跟随光标的拖动元素 (forceFallback=true 时在 body 下)
+   * 关键: pointer-events: none 让鼠标事件穿透到下层 tr,
+   * elementsFromPoint 才能命中目标行 (否则返回 drag 元素本身, 永远命中不了)
+   */
+  pointer-events: none !important;
   background: #fff !important;
   color: #303133 !important;
   border: 1px solid #409eff !important;
@@ -1055,24 +1215,109 @@ onBeforeUnmount(() => {
   visibility: visible !important;
 }
 
-/* 拖放位置视觉 (应用到 el-table 内的 tr, 同样需要全局类) */
-.dept-drop-before {
-  box-shadow: inset 0 3px 0 0 #409eff !important;
-  position: relative !important;
-  z-index: 1;
+/* =====================================================================
+ * 拖放位置视觉 (图1: 平级蓝线 / 图2: 子级蓝框)
+ * <p><b>用户最终需求</b>:
+ * <ul>
+ *   <li>平级移动: 鼠标在两个行之间的间隙 (或目标行上半部分) → 蓝线 (左对齐目标行)</li>
+ *   <li>移动到子级: 鼠标在目标行下半部分 → 目标行整行蓝框 (字段间无蓝线)</li>
+ * </ul>
+ * <p><b>视觉规则</b>:
+ * <ul>
+ *   <li>蓝线 .dept-drop-gap-top: 在目标 tr 上边界 2px 蓝色实线, 宽度对齐 tr 内容</li>
+ *   <li>蓝框 .dept-drop-target: 整行一个蓝色边框, 字段间不画线</li>
+ *   <li>源行 .dept-drop-source: 浅蓝底, 表示"被拖动"</li>
+ * </ul>
+ * ===================================================================== */
+
+/* 源行: 浅蓝底 (被拖动标识) */
+.dept-table-wrap tr.dept-drop-source,
+.dept-table-wrap tr.dept-drop-source > .el-table__cell {
+  background-color: #f0f7ff !important;
 }
-.dept-drop-after {
-  box-shadow: inset 0 -3px 0 0 #409eff !important;
+
+/* =====================================================================
+ * 间隙蓝线: 用 tr 的 ::before / ::after 伪元素画一条横线, 左对齐
+ * <p>tr 不能直接 box-shadow, 改用 td:first-child 的 ::before / ::after 画线.
+ * <p>position: relative 让伪元素定位生效.
+ * ===================================================================== */
+.dept-table-wrap tr.dept-drop-gap-top > .el-table__cell:first-child,
+.dept-table-wrap tr.dept-drop-gap-bottom > .el-table__cell:first-child {
   position: relative !important;
-  z-index: 1;
 }
-.dept-drop-inner {
-  background-color: #e6f2ff !important;
-  box-shadow: inset 0 0 0 2px #409eff !important;
-  position: relative !important;
-  z-index: 1;
+.dept-table-wrap tr.dept-drop-gap-top > .el-table__cell:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: #409eff;
+  z-index: 5;
+  pointer-events: none;
 }
-.dept-drop-inner > td {
-  background-color: #e6f2ff !important;
+.dept-table-wrap tr.dept-drop-gap-bottom > .el-table__cell:first-child::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: #409eff;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* 整行浅蓝底 (蓝框模式) */
+.dept-table-wrap tr.dept-drop-target,
+.dept-table-wrap tr.dept-drop-target > .el-table__cell {
+  background-color: #ecf5ff !important;
+}
+
+/* 第一个 td: 左 + 上 + 下 边框 */
+.dept-table-wrap tr.dept-drop-target > .el-table__cell:first-child {
+  box-shadow:
+    inset 2px 0 0 0 #409eff,
+    inset 0 2px 0 0 #409eff,
+    inset 0 -2px 0 0 #409eff !important;
+}
+
+/* 中间 td: 仅上 + 下 边框 (字段间无蓝线) */
+.dept-table-wrap tr.dept-drop-target > .el-table__cell:not(:first-child):not(:last-child) {
+  box-shadow:
+    inset 0 2px 0 0 #409eff,
+    inset 0 -2px 0 0 #409eff !important;
+}
+
+/* 最后一个 td: 右 + 上 + 下 边框 */
+.dept-table-wrap tr.dept-drop-target > .el-table__cell:last-child {
+  box-shadow:
+    inset -2px 0 0 0 #409eff,
+    inset 0 2px 0 0 #409eff,
+    inset 0 -2px 0 0 #409eff !important;
+}
+
+/* 兜底: 弹窗 z-index 一定高于 drag 元素, 防止新增/编辑弹窗被挡住 */
+.el-overlay,
+.el-overlay-dialog {
+  z-index: 99999 !important;
+}
+.el-dialog {
+  z-index: 99999 !important;
+}
+
+/* =====================================================================
+ * 父级部门选择 popover z-index 兜底
+ * <p>关键: popover 必须在 el-dialog 之上, 否则点击"父级部门"输入框时,
+ * 弹出的 popper 会被 dialog 的 modal 遮罩挡住.
+ * <p>必须放在全局 <style> 块 (非 scoped), 因为 popper 节点被 teleport 到 body 下,
+ * 没有 [data-v-xxx] 属性, scoped 选择器不命中.
+ * <p>el-dialog z-index 已设为 99999, popper 必须更高.
+ * ===================================================================== */
+.jc-parent-tree-popover,
+.jc-parent-tree-popover.el-popper,
+.jc-parent-tree-popover.el-popper.is-light,
+.jc-parent-tree-popover.el-popper[data-popper-placement] {
+  z-index: 9999999 !important;
 }
 </style>
