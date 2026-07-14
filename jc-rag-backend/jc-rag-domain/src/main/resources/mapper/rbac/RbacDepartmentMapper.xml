@@ -151,4 +151,15 @@
         </foreach>
     </update>
 
+    <!--
+        查询顶级部门 (公司名称, parent_id=0).
+        按 sort 升序取第一条; 多顶级视为历史脏数据兜底.
+    -->
+    <select id="selectRootDepartment" resultMap="departmentMap">
+        <include refid="baseColumns"/>
+        WHERE parent_id = 0
+        ORDER BY sort ASC, id ASC
+        LIMIT 1
+    </select>
+
 </mapper>

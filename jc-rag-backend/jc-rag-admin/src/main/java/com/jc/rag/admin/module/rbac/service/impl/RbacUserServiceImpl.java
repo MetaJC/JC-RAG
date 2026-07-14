@@ -10,11 +10,17 @@ import com.jc.rag.admin.module.rbac.model.param.RbacUserSaveParam;
 import com.jc.rag.admin.module.rbac.model.vo.RbacUserVO;
 import com.jc.rag.admin.module.rbac.service.AbstractRbacService;
 import com.jc.rag.admin.module.rbac.service.RbacUserService;
+import com.jc.rag.common.enums.ResultCode;
+import com.jc.rag.common.exception.BizException;
 import com.jc.rag.common.exception.ResourceNotFoundException;
+import com.jc.rag.domain.mapper.rbac.RbacDepartmentMapper;
+import com.jc.rag.domain.mapper.rbac.RbacUserDepartmentMapper;
 import com.jc.rag.domain.mapper.rbac.RbacUserMapper;
 import com.jc.rag.domain.mapper.rbac.RbacUserRoleMapper;
 import com.jc.rag.domain.mapper.rbac.RbacRolePermissionMapper;
 import com.jc.rag.common.model.base.BaseServiceImpl;
+import com.jc.rag.domain.entity.rbac.RbacDepartmentEntity;
+import com.jc.rag.domain.entity.rbac.RbacUserDepartmentEntity;
 import com.jc.rag.domain.entity.rbac.RbacUserEntity;
 import com.jc.rag.domain.entity.rbac.RbacUserRoleEntity;
 import com.jc.rag.domain.entity.rbac.RbacRolePermissionEntity;
@@ -46,18 +52,24 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
 
     private final AbstractRbacService rbac;
     private final RbacUserRoleMapper userRoleMapper;
+    private final RbacUserDepartmentMapper userDepartmentMapper;
     private final RbacRolePermissionMapper rolePermissionMapper;
+    private final RbacDepartmentMapper rbacDepartmentMapper;
     private final PasswordEncoder passwordEncoder;
     private final RbacDefaultsProperties rbacDefaults;
 
     public RbacUserServiceImpl(AbstractRbacService rbac,
                            RbacUserRoleMapper userRoleMapper,
+                           RbacUserDepartmentMapper userDepartmentMapper,
                            RbacRolePermissionMapper rolePermissionMapper,
+                           RbacDepartmentMapper rbacDepartmentMapper,
                            PasswordEncoder passwordEncoder,
                            RbacDefaultsProperties rbacDefaults) {
         this.rbac = rbac;
         this.userRoleMapper = userRoleMapper;
+        this.userDepartmentMapper = userDepartmentMapper;
         this.rolePermissionMapper = rolePermissionMapper;
+        this.rbacDepartmentMapper = rbacDepartmentMapper;
         this.passwordEncoder = passwordEncoder;
         this.rbacDefaults = rbacDefaults;
     }
@@ -73,9 +85,19 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         boolean excludeDeveloper = !rbac.isDeveloper();
         // P0 越权修复: 非超管/developer 隐藏 super_admin 用户
         boolean hideSuper = rbac.shouldHideSuperAdmin();
+        // 部门过滤: deptId > 0 时, 递归展开到所有后代部门 ID
+        Long deptId = query.getDeptId();
+        List<Long> descendantDeptIds = null;
+        if (deptId != null && deptId > 0) {
+            descendantDeptIds = userDepartmentMapper.selectDescendantDepartmentIds(deptId);
+            if (descendantDeptIds == null || descendantDeptIds.isEmpty()) {
+                // 选中的部门不存在, 返回空列表
+                return PageResponse.of(List.of(), 0L, query.getPageNum(), query.getPageSize());
+            }
+        }
         IPage<Map<String, Object>> page = new Page<>(query.getPageNum(), query.getPageSize(), false);
-        page = baseMapper.pageUsers(page, like, excludeDeveloper);
-        page.setTotal(baseMapper.countUsers(like, excludeDeveloper));
+        page = baseMapper.pageUsers(page, like, excludeDeveloper, deptId, descendantDeptIds);
+        page.setTotal(baseMapper.countUsers(like, excludeDeveloper, deptId, descendantDeptIds));
         List<RbacUserVO> all = new ArrayList<>(page.getRecords().size());
         for (Map<String, Object> row : page.getRecords()) {
             all.add(toUserVO(row));
@@ -100,10 +122,15 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         u.setEmail(param.getEmail());
         u.setUserType(param.getUserType());
         u.setStatus(param.getStatus() == null ? 1 : param.getStatus());
+        u.setDepartmentId(param.getDepartmentId());
         String pwd = param.getPassword();
         if (pwd == null || pwd.isEmpty()) pwd = rbacDefaults.getDefaultPassword();
         u.setPasswordHash(passwordEncoder.encode(pwd));
         save(u);
+        if (param.getDepartmentId() != null) {
+            // 同步写入 rbac_user_department 关联表, 主部门标记
+            replaceUserPrimaryDepartment(u.getId(), param.getDepartmentId());
+        }
         if (param.getRoleIds() != null) {
             // P0 越权修复: 操作者分配的每个 role 已绑定的 perm 必须 ⊆ 操作者自身权限
             assertRolePermissionsWithinOperatorScope(param.getRoleIds());
@@ -125,6 +152,11 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         rbac.rejectReservedUserTypeChange(u.getUserType(), param.getUserType(), RbacConstants.OpType.UPDATE_USER);
         if (param.getUserType() != null) u.setUserType(param.getUserType());
         if (param.getStatus() != null) u.setStatus(param.getStatus());
+        // 部门变更: 非 null 时同步主部门 (不传视为保持不变; 传 null 在 controller 决定)
+        if (param.getDepartmentId() != null) {
+            u.setDepartmentId(param.getDepartmentId());
+            replaceUserPrimaryDepartment(id, param.getDepartmentId());
+        }
         boolean ok = updateById(u);
         if (param.getRoleIds() != null) {
             // P0 越权修复: 分配的每个 role 已绑定的 perm 必须 ⊆ 操作者自身权限
@@ -132,6 +164,21 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
             replaceUserRoles(u.getId(), param.getRoleIds());
         }
         return ok;
+    }
+
+    /**
+     * 替换用户主部门关联 (只清主部门标记, 不删所有).
+     * <p>当前阶段仅支持主部门 (单一), 后续如需多部门兼职, 走 replaceUserDepartments 批量.
+     */
+    private void replaceUserPrimaryDepartment(Long userId, Long newDeptId) {
+        // 清空旧的主部门
+        userDepartmentMapper.delete(new QueryWrapper<RbacUserDepartmentEntity>().eq("user_id", userId));
+        if (newDeptId == null) return;
+        RbacUserDepartmentEntity ud = new RbacUserDepartmentEntity();
+        ud.setUserId(userId);
+        ud.setDepartmentId(newDeptId);
+        ud.setIsPrimary(1);
+        userDepartmentMapper.insert(ud);
     }
 
     @Override
@@ -217,6 +264,67 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         return true;
     }
 
+    @Override
+    public List<Long> findUserIdsByDepartmentId(Long departmentId) {
+        if (departmentId == null) return List.of();
+        return userDepartmentMapper.selectUserIdsByDepartmentIdRecursive(departmentId);
+    }
+
+    @Override
+    public List<java.util.Map<String, Object>> listUsersByDepartmentId(Long departmentId) {
+        if (departmentId == null) return List.of();
+        return userDepartmentMapper.selectUsersByDepartmentId(departmentId);
+    }
+
+    @Override
+    @Transactional
+    public boolean assignUsersToDepartment(Long departmentId, List<Long> userIds) {
+        if (departmentId == null) {
+            throw new BizException(ResultCode.PARAM_INVALID, "部门 id 不能为空");
+        }
+        // 部门存在性校验
+        RbacDepartmentEntity dept = rbacDepartmentMapper.selectById(departmentId);
+        if (dept == null) {
+            throw new ResourceNotFoundException("rbac.department.notfound", departmentId);
+        }
+        // 计算部门树 (含自身 + 所有后代) 的 id 集合
+        List<Long> scopeIds = userDepartmentMapper.selectDescendantDepartmentIds(departmentId);
+        if (scopeIds == null || scopeIds.isEmpty()) return true;
+
+        // 1) 覆盖式: 先清空 scope 内所有用户对 scope 内所有部门的旧关联
+        //    (不限于 userIds; 否则取消勾选不生效)
+        userDepartmentMapper.delete(
+                new QueryWrapper<RbacUserDepartmentEntity>().in("department_id", scopeIds));
+
+        // 2) userIds 为空 = 仅清空, 无需重建
+        if (userIds == null || userIds.isEmpty()) {
+            return true;
+        }
+
+        // 3) 按 userIds 重建关联, 全部挂在 target 部门上, is_primary=0 (不抢用户主部门)
+        List<RbacUserDepartmentEntity> list = new ArrayList<>(userIds.size());
+        for (Long uid : userIds) {
+            if (uid == null) continue;
+            // 校验用户存在性 + 跳过系统保留账号
+            RbacUserEntity u = getById(uid);
+            if (u == null) continue;
+            String uname = u.getUsername();
+            if ("developer".equalsIgnoreCase(uname) || "super_admin".equalsIgnoreCase(uname)) {
+                // 系统保留账号不允许通过部门分配加入; 跳过
+                continue;
+            }
+            RbacUserDepartmentEntity ud = new RbacUserDepartmentEntity();
+            ud.setUserId(uid);
+            ud.setDepartmentId(departmentId);
+            ud.setIsPrimary(0);
+            list.add(ud);
+        }
+        if (!list.isEmpty()) {
+            userDepartmentMapper.insertBatch(list);
+        }
+        return true;
+    }
+
     /**
      * 给当前操作者一批 roleId, 校验这些 role 已绑定的 perm 必须全部在操作者自身 perm 范围内.
      * <p>等价于: 对每个 roleId, 累加其 permissionIds, 再走 {@link AbstractRbacService#assertCanAssignPermissions}.
@@ -247,24 +355,40 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         return "%" + keyword + "%";
     }
 
-    /** Map → RbacUserVO 转换（适配 SqlMap userWithRoles resultMap） */
+    /**
+     * Map → RbacUserVO 转换。
+     * <p>key 与 SQL 别名一致 (下划线), 由 pageUsers / listUsers 直接返回 LinkedHashMap 提供.
+     * <p>附 fallback: 若 SQL 别名未来又变成驼峰, 仍能兼容 (history-proof).
+     */
     private RbacUserVO toUserVO(Map<String, Object> row) {
         RbacUserVO v = new RbacUserVO();
-        v.setId(toLong(row.get("id")));
-        v.setUsername((String) row.get("username"));
-        v.setNickname((String) row.get("nickname"));
-        v.setPhone((String) row.get("phone"));
-        v.setEmail((String) row.get("email"));
-        v.setStatus(toInt(row.get("status")));
+        v.setId(toLong(getStr(row, "id", "id")));
+        v.setUsername(getStr(row, "username", "username"));
+        v.setNickname(getStr(row, "nickname", "nickname"));
+        v.setPhone(getStr(row, "phone", "phone"));
+        v.setEmail(getStr(row, "email", "email"));
+        v.setStatus(toInt(getStr(row, "status", "status")));
         v.setStatusText(rbac.statusText(v.getStatus()));
-        v.setUserType((String) row.get("userType"));
+        v.setUserType(getStr(row, "userType", "user_type"));
         v.setUserTypeText(rbac.userTypeText(v.getUserType()));
-        v.setCreatedAt(toLocalDateTime(row.get("createdAt")));
-        v.setLastLoginTime(toLocalDateTime(row.get("lastLoginTime")));
-        v.setLastLoginIp((String) row.get("lastLoginIp"));
-        v.setRoleIds(splitIds(row.get("roleIds")));
-        v.setRoleNames(splitNames(row.get("roleNames")));
+        v.setDepartmentId(toLong(getStr(row, "departmentId", "department_id")));
+        v.setDepartmentName(getStr(row, "departmentName", "department_name"));
+        v.setCreatedAt(toLocalDateTime(getStr(row, "createdAt", "created_at")));
+        v.setLastLoginTime(toLocalDateTime(getStr(row, "lastLoginTime", "last_login_time")));
+        v.setLastLoginIp(getStr(row, "lastLoginIp", "last_login_ip"));
+        v.setRoleIds(splitIds(getStr(row, "roleIds", "role_ids")));
+        v.setRoleNames(splitNames(getStr(row, "roleNames", "role_names")));
         return v;
+    }
+
+    /**
+     * Map 取值 (兼容驼峰与下划线 key).
+     * <p>先按驼峰 key 取, 为 null 时 fallback 到下划线 key.
+     */
+    private static String getStr(Map<String, Object> row, String camel, String snake) {
+        Object v = row.get(camel);
+        if (v == null) v = row.get(snake);
+        return v == null ? null : v.toString();
     }
 
     private static Long toLong(Object o) {

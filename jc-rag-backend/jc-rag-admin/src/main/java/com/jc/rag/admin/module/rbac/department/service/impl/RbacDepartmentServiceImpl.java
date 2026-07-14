@@ -80,12 +80,43 @@ public class RbacDepartmentServiceImpl
     }
 
     @Override
+    public RbacDepartmentVO getRootDepartment() {
+        Map<String, Object> row = baseMapper.selectRootDepartment();
+        if (row == null || row.isEmpty()) return null;
+        RbacDepartmentVO vo = toVO(row);
+        // 当前用户是否可编辑公司名称: 仅 developer / super_admin 拥有权限
+        vo.setCanEdit(rbac.isDeveloper() || rbac.isSuperAdmin());
+        return vo;
+    }
+
+    @Override
+    @Transactional
+    public boolean updateCompanyName(String newName) {
+        if (newName == null || newName.isBlank()) {
+            throw new BizException(ResultCode.PARAM_INVALID, "公司名称不能为空");
+        }
+        RbacDepartmentVO root = getRootDepartment();
+        if (root == null) {
+            throw new ResourceNotFoundException("rbac.department.root.notfound", null);
+        }
+        rbac.assertCanEditRootDepartment();
+        RbacDepartmentEntity e = getById(root.getId());
+        if (e == null) {
+            throw new ResourceNotFoundException("rbac.department.notfound", root.getId());
+        }
+        e.setName(newName.trim());
+        return updateById(e);
+    }
+
+    @Override
     @Transactional
     public Long create(RbacDepartmentSaveParam param) {
         long parentId = param.getParentId() == null ? 0L : param.getParentId();
-        // 顶级部门仅 developer / super_admin 可创建
+        // 业务层禁止创建顶级 (parent_id=0).
+        // <p>顶级 (parent_id=0) 仅允许唯一节点 = 公司名称, 只能由 Flyway / 系统初始化创建.
+        // <p>前端必须挂到具体部门 (公司名称或更低) 下.
         if (parentId == 0L) {
-            rbac.assertCanEditRootDepartment();
+            throw new BizException(ResultCode.PARAM_INVALID, "业务层禁止创建顶级部门; 顶级仅允许唯一的公司名称节点");
         }
         RbacDepartmentEntity e = new RbacDepartmentEntity();
         e.setParentId(parentId);
@@ -108,17 +139,13 @@ public class RbacDepartmentServiceImpl
         if (e == null) {
             throw new ResourceNotFoundException("rbac.department.notfound", id);
         }
-        // 顶级部门 (parentId=0) 仅 developer / super_admin 可编辑
-        if (e.getParentId() != null && e.getParentId() == 0L) {
-            rbac.assertCanEditRootDepartment();
-        }
         if (param.getParentId() != null) {
             if (param.getParentId().equals(id)) {
                 throw new BizException(ResultCode.PARAM_INVALID, "父级部门不能为自身");
             }
-            // 改为顶级 (parentId=0) 需要高级权限
+            // 业务层禁止改为顶级 (parent_id=0); 顶级=公司名称, 唯一, 不可由 update 改
             if (param.getParentId() == 0L) {
-                rbac.assertCanEditRootDepartment();
+                throw new BizException(ResultCode.PARAM_INVALID, "业务层禁止改为顶级部门; 顶级仅允许唯一的公司名称节点");
             }
             e.setParentId(param.getParentId());
         }
@@ -136,9 +163,9 @@ public class RbacDepartmentServiceImpl
         if (e == null) {
             throw new ResourceNotFoundException("rbac.department.notfound", id);
         }
-        // 顶级部门仅 developer / super_admin 可删除
+        // 顶级 (公司名称) 节点不允许删除, 保护唯一根
         if (e.getParentId() != null && e.getParentId() == 0L) {
-            rbac.assertCanEditRootDepartment();
+            throw new BizException(ResultCode.PARAM_INVALID, "顶级 (公司名称) 节点不允许删除");
         }
         long childCount = count(new QueryWrapper<RbacDepartmentEntity>().eq("parent_id", id));
         if (childCount > 0) {
@@ -252,6 +279,10 @@ public class RbacDepartmentServiceImpl
         } else {
             // before / after: 与 target 同级
             newParentId = tgt.getParentId() == null ? 0L : tgt.getParentId();
+            // 业务层禁止拖到顶级下 (顶级=公司名称 唯一根), 不允许在其外加同级
+            if (newParentId == 0L) {
+                throw new BizException(ResultCode.PARAM_INVALID, "业务层禁止拖到顶级下; 顶级仅允许唯一的公司名称节点");
+            }
             int t = tgt.getSort() == null ? 0 : tgt.getSort();
             newSort = POS_BEFORE.equals(position) ? t : t + 1;
         }

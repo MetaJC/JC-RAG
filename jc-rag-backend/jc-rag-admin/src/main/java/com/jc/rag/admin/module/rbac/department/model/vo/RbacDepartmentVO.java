@@ -34,6 +34,10 @@ public class RbacDepartmentVO extends BaseVO {
      * 子部门列表 (树形结构)
      */
     private List<RbacDepartmentVO> children;
+    /**
+     * 当前用户是否可编辑 (仅 root 接口填充; 用于前端控制公司名称编辑入口)
+     */
+    private Boolean canEdit;
 
     public Long getParentId() { return parentId; }
     public void setParentId(Long v) { parentId = v; }
@@ -55,4 +59,6 @@ public class RbacDepartmentVO extends BaseVO {
     public void setHasChildren(Boolean v) { hasChildren = v; }
     public List<RbacDepartmentVO> getChildren() { return children; }
     public void setChildren(List<RbacDepartmentVO> v) { children = v; }
+    public Boolean getCanEdit() { return canEdit; }
+    public void setCanEdit(Boolean v) { canEdit = v; }
 }

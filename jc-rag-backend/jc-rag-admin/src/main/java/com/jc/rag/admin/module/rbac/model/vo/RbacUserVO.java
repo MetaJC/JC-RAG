@@ -23,6 +23,14 @@ public class RbacUserVO extends BaseVO {
     private String statusText;
     private String userType;
     private String userTypeText;
+    /**
+     * 主部门 id (冗余, 真实关联见 rbac_user_department 表)
+     */
+    private Long departmentId;
+    /**
+     * 主部门名称 (用于列表展示, 来源 rbac_department.name)
+     */
+    private String departmentName;
     private List<Long> roleIds;
     private List<String> roleNames;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
@@ -45,6 +53,10 @@ public class RbacUserVO extends BaseVO {
     public void setUserType(String v) { this.userType = v; }
     public String getUserTypeText() { return userTypeText; }
     public void setUserTypeText(String v) { this.userTypeText = v; }
+    public Long getDepartmentId() { return departmentId; }
+    public void setDepartmentId(Long v) { this.departmentId = v; }
+    public String getDepartmentName() { return departmentName; }
+    public void setDepartmentName(String v) { this.departmentName = v; }
     public List<Long> getRoleIds() { return roleIds; }
     public void setRoleIds(List<Long> v) { this.roleIds = v; }
     public List<String> getRoleNames() { return roleNames; }

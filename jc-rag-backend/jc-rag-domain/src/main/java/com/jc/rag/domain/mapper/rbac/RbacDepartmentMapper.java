@@ -89,4 +89,10 @@ public interface RbacDepartmentMapper extends BaseMapper<RbacDepartmentEntity> {
      * <p>用于父级启停时把后代也带过来 (级联启用/禁用).
      */
     int batchUpdateStatus(@Param("ids") List<Long> ids, @Param("status") Integer status);
+
+    /**
+     * 查询顶级部门 (parent_id=0), 按 sort 升序取第一条.
+     * <p>系统约定: 顶级部门即公司名称, 全系统唯一. 多顶级视为历史脏数据, 兜底取 sort 最小者.
+     */
+    Map<String, Object> selectRootDepartment();
 }

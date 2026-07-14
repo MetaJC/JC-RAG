@@ -17,16 +17,21 @@ import java.util.Map;
 public interface RbacUserMapper extends BaseMapper<RbacUserEntity> {
 
     long countUsers(@Param("keyword") String keyword,
-                    @Param("excludeDeveloper") boolean excludeDeveloper);
+                    @Param("excludeDeveloper") boolean excludeDeveloper,
+                    @Param("deptId") Long deptId,
+                    @Param("descendantDeptIds") List<Long> descendantDeptIds);
 
     /**
      * 分页查询用户 (含角色聚合)。
      * <p>调用方需用 {@code new Page<>(pageNum, pageSize, false)} 关闭自动 count，
      * 并在外部调用 {@link #countUsers} 设置 total (因 GROUP BY MP 自动 count 不可用)。
+     * <p>deptId 过滤: 传入目标部门 ID, 会通过 descendantDeptIds 递归包含所有子部门用户。
      */
     IPage<Map<String, Object>> pageUsers(IPage<Map<String, Object>> page,
                                          @Param("keyword") String keyword,
-                                         @Param("excludeDeveloper") boolean excludeDeveloper);
+                                         @Param("excludeDeveloper") boolean excludeDeveloper,
+                                         @Param("deptId") Long deptId,
+                                         @Param("descendantDeptIds") List<Long> descendantDeptIds);
 
     /** 全量导出 (无分页)。 */
     List<Map<String, Object>> listUsers(@Param("keyword") String keyword,

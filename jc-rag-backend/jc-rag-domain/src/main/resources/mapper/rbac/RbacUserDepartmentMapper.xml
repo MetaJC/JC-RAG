@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.rbac.RbacUserDepartmentMapper">
+
+    <!-- 按用户 ID 查其全部关联的部门 ID 列表 -->
+    <select id="selectDepartmentIdsByUserId" resultType="java.lang.Long">
+        SELECT department_id
+        FROM rbac_user_department
+        WHERE user_id = #{userId}
+        ORDER BY is_primary DESC, id ASC
+    </select>
+
+    <!-- 按部门 ID 列表查关联的用户 ID 列表 (DISTINCT 去重) -->
+    <select id="selectUserIdsByDepartmentIds" resultType="java.lang.Long">
+        SELECT DISTINCT user_id
+        FROM rbac_user_department
+        WHERE department_id IN
+        <foreach collection="departmentIds" item="did" open="(" close=")" separator=",">
+            #{did}
+        </foreach>
+    </select>
+
+    <!--
+        按部门 ID 递归查其全部后代部门关联的用户 ID (含子级、孙级等).
+        <p>用 WITH RECURSIVE 先把部门 ID 展开成树, 再关联 rbac_user_department.
+        <p>只查 user_id, 配合 service 层补充 is_primary 等字段.
+    -->
+    <select id="selectUserIdsByDepartmentIdRecursive" resultType="java.lang.Long">
+        WITH RECURSIVE dept_tree (id) AS (
+            SELECT id FROM rbac_department WHERE id = #{departmentId}
+            UNION ALL
+            SELECT d.id FROM rbac_department d INNER JOIN dept_tree t ON d.parent_id = t.id
+        )
+        SELECT DISTINCT ud.user_id
+        FROM rbac_user_department ud
+        INNER JOIN dept_tree t ON t.id = ud.department_id
+    </select>
+
+    <!--
+        查某部门 (含后代) 关联的用户详细信息.
+        <p>JOIN rbac_user 取用户名/昵称/类型/状态, 过滤 deleted=0.
+        <p>返回: [{id, username, nickname, user_type, status}]
+    -->
+    <select id="selectUsersByDepartmentId" resultType="java.util.LinkedHashMap">
+        WITH RECURSIVE dept_tree (id) AS (
+            SELECT id FROM rbac_department WHERE id = #{departmentId}
+            UNION ALL
+            SELECT d.id FROM rbac_department d INNER JOIN dept_tree t ON d.parent_id = t.id
+        )
+        SELECT DISTINCT u.id AS id,
+               u.username AS username,
+               u.nickname AS nickname,
+               u.user_type AS userType,
+               u.status AS status
+        FROM rbac_user_department ud
+        INNER JOIN dept_tree t ON t.id = ud.department_id
+        INNER JOIN rbac_user u ON u.id = ud.user_id
+        WHERE u.deleted = 0
+        ORDER BY u.id ASC
+    </select>
+
+    <!-- 按用户 ID 删除其全部部门关联 -->
+    <delete id="deleteByUserId">
+        DELETE FROM rbac_user_department WHERE user_id = #{userId}
+    </delete>
+
+    <!-- 批量插入 -->
+    <insert id="insertBatch">
+        INSERT INTO rbac_user_department (user_id, department_id, is_primary) VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.userId}, #{item.departmentId}, #{item.isPrimary})
+        </foreach>
+    </insert>
+
+    <!-- 递归查询部门及其所有后代的 ID (含自身)
+         <p>使用 MySQL 8+ 递归 CTE; 若低版本可降级为程序递归
+         <p>初始锚点 = departmentId 自身, 递归项 = 子级 parent_id
+    -->
+    <select id="selectDescendantDepartmentIds" resultType="java.lang.Long">
+        WITH RECURSIVE dept_tree (id, parent_id) AS (
+            SELECT id, parent_id
+            FROM rbac_department
+            WHERE id = #{departmentId}
+            UNION ALL
+            SELECT d.id, d.parent_id
+            FROM rbac_department d
+            INNER JOIN dept_tree t ON d.parent_id = t.id
+        )
+        SELECT id FROM dept_tree
+    </select>
+
+</mapper>

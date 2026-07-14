@@ -27,6 +27,11 @@ public class RbacUserSaveParam {
     private String password;
 
     /**
+     * 主部门 id (可空, 表示未分配主部门)
+     */
+    private Long departmentId;
+
+    /**
      * 角色 ID 列表。
      * 允许为空（新建用户不强制必须分配角色，避免误操作被校验拦截）。
      */
@@ -86,6 +91,14 @@ public class RbacUserSaveParam {
 
     public void setPassword(String password) {
         this.password = password;
+    }
+
+    public Long getDepartmentId() {
+        return departmentId;
+    }
+
+    public void setDepartmentId(Long departmentId) {
+        this.departmentId = departmentId;
     }
 
     public List<Long> getRoleIds() {

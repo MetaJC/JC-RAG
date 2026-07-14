@@ -12,4 +12,11 @@ import lombok.Data;
 public class RbacUserQueryParam extends PageQueryParam {
 
     private String keyword;
+
+    /**
+     * 部门 ID 过滤.
+     * <p>0 或 null = 不按部门过滤 (全公司);
+     * <p>非 0 = 过滤该部门及其所有后代部门的用户.
+     */
+    private Long deptId;
 }

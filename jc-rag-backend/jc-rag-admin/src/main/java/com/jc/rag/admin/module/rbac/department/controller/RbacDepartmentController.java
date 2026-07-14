@@ -1,6 +1,8 @@
 package com.jc.rag.admin.module.rbac.department.controller;
 
 import com.jc.rag.admin.common.annotation.OperationLog;
+import com.jc.rag.admin.module.rbac.department.model.param.RbacDepartmentAssignUsersParam;
+import com.jc.rag.admin.module.rbac.department.model.param.RbacDepartmentCompanyNameParam;
 import com.jc.rag.admin.module.rbac.department.model.param.RbacDepartmentMoveParam;
 import com.jc.rag.admin.module.rbac.department.model.param.RbacDepartmentQueryParam;
 import com.jc.rag.admin.module.rbac.department.model.param.RbacDepartmentSaveParam;
@@ -35,6 +37,7 @@ import java.util.List;
 public class RbacDepartmentController {
 
     private final RbacDepartmentService rbacDepartmentService;
+    private final com.jc.rag.admin.module.rbac.service.RbacUserService rbacUserService;
 
     /** 分页列表 */
     @GetMapping
@@ -97,5 +100,45 @@ public class RbacDepartmentController {
     @OperationLog(module = "RBAC", action = "MOVE_DEPARTMENT", description = "拖拽调整部门结构")
     public R<Boolean> move(@PathVariable Long id, @RequestBody @Valid RbacDepartmentMoveParam param) {
         return R.ok(rbacDepartmentService.move(id, param.getTargetId(), param.getPosition()));
+    }
+
+    /**
+     * 查询公司名称 (顶级部门).
+     * <p>部门管理页表格上方单独展示用, 不在树内显示根节点.
+     * <p>返回 id + name, 找不到顶级部门时 data=null (前端兜底展示 "—").
+     */
+    @GetMapping("/root")
+    public R<RbacDepartmentVO> root() {
+        return R.ok(rbacDepartmentService.getRootDepartment());
+    }
+
+    /**
+     * 修改公司名称 (顶级部门 name).
+     * <p>仅 super_admin / developer 可调用 (Service 层已校验).
+     */
+    @PutMapping("/company-name")
+    @OperationLog(module = "RBAC", action = "UPDATE_COMPANY_NAME", description = "修改公司名称")
+    public R<Boolean> updateCompanyName(@RequestBody @Valid RbacDepartmentCompanyNameParam param) {
+        return R.ok(rbacDepartmentService.updateCompanyName(param.getName()));
+    }
+
+    /**
+     * 查询某部门 (含后代) 关联的用户 ID 列表.
+     * <p>用于部门管理 - 分配用户弹窗回显.
+     */
+    @GetMapping("/{id}/users")
+    public R<List<Long>> listAssignedUserIds(@PathVariable Long id) {
+        return R.ok(rbacUserService.findUserIdsByDepartmentId(id));
+    }
+
+    /**
+     * 覆盖式为该部门 (含后代) 分配用户.
+     * <p>语义: userIds 即该部门树范围内最终绑定的用户列表, 覆盖现有绑定.
+     * <p>developer / super_admin 跳过, 不参与分配.
+     */
+    @PutMapping("/{id}/users")
+    @OperationLog(module = "RBAC", action = "ASSIGN_DEPARTMENT_USERS", description = "为部门分配用户")
+    public R<Boolean> assignUsers(@PathVariable Long id, @RequestBody @Valid RbacDepartmentAssignUsersParam param) {
+        return R.ok(rbacUserService.assignUsersToDepartment(id, param.getUserIds()));
     }
 }

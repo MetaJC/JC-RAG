@@ -32,16 +32,23 @@ import {
   Search,
   Sort,
   User,
+  UserFilled,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useDeptDrag, type DropResult } from '../composables/useDeptDrag'
+import { useAuthStore } from '../stores/auth'
 
 import {
+  assignRbacDepartmentUsers,
   createRbacDepartment,
   deleteRbacDepartment,
   fetchRbacDepartment,
   fetchRbacDepartmentTree,
+  fetchRbacDepartmentUserIds,
+  fetchRbacRootDepartment,
+  fetchRbacUsers,
   moveRbacDepartment,
+  updateRbacCompanyName,
   updateRbacDepartment,
   updateRbacDepartmentStatus,
   updateRbacDepartmentStatusCascade,
@@ -68,8 +75,125 @@ const deptTree = ref<DeptNode[]>([])
 /** 已展开的部门 id 集合 (点击行内展开/折叠按钮维护) */
 const expandedIds = ref<Set<number>>(new Set())
 
-/** 关键字 / 状态过滤后的树 */
-const filteredTree = computed(() => applyClientFilter(deptTree.value, keyword.value, statusFilter.value))
+/* =====================================================================
+ * 公司名称 (顶级部门 parent_id=0)
+ * <p>展示在表格上方, 表格内不显示根节点; 仅有 super_admin / developer 可编辑.
+ * ===================================================================== */
+const authStore = useAuthStore()
+/**
+ * 公司名称编辑权限: 直接采用后端 root 接口返回的 canEdit 字段
+ * <p>避免前端硬编码 username / role 字符串; 后端按 developer / super_admin 决定
+ */
+const canEditCompanyName = ref(false)
+const companyName = ref<string>('')
+const companyNameLoading = ref(false)
+const companyNameEditing = ref(false)
+const companyNameDraft = ref('')
+
+/**
+ * 公司根 (parent_id=0) 节点 id; 表格内只隐藏这一个, 其他部门保持原状.
+ * <p>- 加载时通过 fetchRbacRootDepartment() 查询, 拿不到 id 就视为还没有公司根, 表格内不隐藏任何节点.
+ * <p>- 这避免了历史脏数据 (多 parent_id=0 节点) 时被误删.
+ */
+const companyRootId = ref<number | null>(null)
+
+/**
+ * 统计 parent_id=0 的节点数量 + 收集其名称.
+ * <p>当前数据库里"公司根"应当唯一; 多于 1 个视为历史脏数据, 不当作"公司名".
+ * <p>用于在"公司名称"行做兜底: 多根时显示"尚未设置"而不是误把第一个根当公司名.
+ */
+const rootCount = computed(() => {
+  let c = 0
+  const dfs = (ns: DeptNode[]) => {
+    for (const n of ns) {
+      if (n.parentId === 0) c++
+      if (n.children?.length) dfs(n.children)
+    }
+  }
+  dfs(deptTree.value)
+  return c
+})
+
+/** 实际展示用的公司名: 仅当 parent_id=0 节点唯一时使用后端返回的名字, 否则空 */
+const displayCompanyName = computed(() => (rootCount.value === 1 ? companyName.value : ''))
+
+/** 编辑入口 tooltip 提示: 根据权限与 rootCount 给出准确原因 */
+const editCompanyNameTooltip = computed(() => {
+  if (!canEditCompanyName.value) return '仅 super_admin / developer 可编辑公司名称'
+  if (companyNameLoading.value) return '加载中…'
+  if (rootCount.value !== 1) {
+    return '当前数据库中顶级 (parent_id=0) 部门不唯一, 不能直接编辑公司名称; 请先在数据层将多个顶级合并为 1 个'
+  }
+  return '编辑公司名称 (顶级部门)'
+})
+
+async function loadCompanyName() {
+  companyNameLoading.value = true
+  try {
+    const data = (await fetchRbacRootDepartment()) as
+      | { id: number; name: string; canEdit?: boolean }
+      | null
+    companyName.value = data?.name ?? ''
+    companyRootId.value = data?.id ?? null
+    canEditCompanyName.value = data?.canEdit === true
+  } catch {
+    companyName.value = ''
+    companyRootId.value = null
+    canEditCompanyName.value = false
+  } finally {
+    companyNameLoading.value = false
+  }
+}
+
+function startEditCompanyName() {
+  companyNameDraft.value = companyName.value
+  companyNameEditing.value = true
+}
+
+function cancelEditCompanyName() {
+  companyNameEditing.value = false
+  companyNameDraft.value = ''
+}
+
+async function saveCompanyName() {
+  const next = companyNameDraft.value.trim()
+  if (!next) {
+    ElMessage.warning('公司名称不能为空')
+    return
+  }
+  if (next === companyName.value) {
+    companyNameEditing.value = false
+    return
+  }
+  try {
+    await updateRbacCompanyName(next)
+    companyName.value = next
+    companyNameEditing.value = false
+    ElMessage.success('公司名称已更新')
+    // 顶级部门名称变了, 父级选择 popover 里也要刷新
+    await loadParentOptions()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '更新失败')
+  }
+}
+
+/**
+ * 表格展示用的树: 剥除唯一的根节点 (公司名称, parent_id=0), 把它的 children 上提为根.
+ * <p>业务约束: 数据库中顶级节点唯一, 一定是公司名称, 表格里不需要重复展示.
+ * <p>这是 <strong>整个系统里唯一隐藏根节点</strong> 的位置; 其他部门树
+ * <p>(父级选择 popover / 用户部门下拉 / 用户页左侧部门树) 一律保持原样, 直接展示公司名称根.
+ * <p>剥除方式: 当且仅当存在唯一一个 parent_id=0 节点时, 用其 children 替换.
+ * <p>若历史脏数据出现多 parent_id=0 节点, 不剥除 (降级为原样展示), 避免误删部门.
+ */
+const displayTree = computed<DeptNode[]>(() => {
+  if (deptTree.value.length === 1 && deptTree.value[0].parentId === 0) {
+    return deptTree.value[0].children ?? []
+  }
+  return deptTree.value
+})
+
+/** 关键字 / 状态过滤后的树 (在 displayTree 基础上过滤) */
+const filteredTree = computed(() => applyClientFilter(displayTree.value, keyword.value, statusFilter.value))
 
 /** 扁平化渲染列表: 遍历 filteredTree, 命中节点保留祖先链, 已展开节点的 children 继续展开 */
 const flatList = computed<FlatDept[]>(() => flattenForDisplay(filteredTree.value, expandedIds.value))
@@ -133,8 +257,8 @@ function collectAllIds(nodes: DeptNode[]): number[] {
 }
 
 async function loadParentOptions() {
-  const data = (await fetchRbacDepartmentTree()) ?? []
-  parentOptions.value = [{ id: 0, name: '顶级 (无上级)', children: data } as any]
+  // 部门树根节点就是唯一的「公司名称」, 不再包装"顶级 (无上级)"假节点
+  parentOptions.value = (await fetchRbacDepartmentTree()) ?? []
 }
 
 function applyClientFilter(nodes: DeptNode[], kw: string, status: number | undefined): DeptNode[] {
@@ -213,13 +337,33 @@ function collapseAll() {
   expandedIds.value = new Set()
 }
 
+/** 是否全部展开 (用于切换按钮的图标与 tooltip) */
+const allExpanded = computed(() => {
+  const all = collectAllIds(deptTree.value)
+  if (all.length === 0) return false
+  return all.every((id) => expandedIds.value.has(id))
+})
+
+/** 切换全部展开/折叠 (合并为单个按钮) */
+function toggleExpandAll() {
+  if (allExpanded.value) collapseAll()
+  else expandAll()
+}
+
 /* =====================================================================
  * CRUD
  * ===================================================================== */
 
-function openCreate(parentId = 0) {
+/**
+ * 打开新增部门弹窗.
+ * <p>默认挂在公司名称 (唯一根节点) 下, 而不是 parent_id=0.
+ * <p>先 await loadCompanyName() 确保 companyRootId 已加载, 避免用户首次打开时拿到 null.
+ */
+async function openCreate(parentId?: number) {
+  await loadCompanyName()
   editingId.value = null
-  Object.assign(form, { parentId, name: '', sort: 0, status: 1, remark: '' })
+  const defaultParentId = parentId ?? companyRootId.value ?? 0
+  Object.assign(form, { parentId: defaultParentId, name: '', sort: 0, status: 1, remark: '' })
   dialogVisible.value = true
 }
 
@@ -251,6 +395,164 @@ async function submit() {
   dialogVisible.value = false
   await loadDeptTree()
   await loadParentOptions()
+}
+
+/* =====================================================================
+ * 分配用户 (部门 -> 用户) 弹窗
+ * <p>左侧: 候选用户列表 (按关键字懒加载, 排除 developer / super_admin);
+ * <p>右侧: 已选用户 chips; 确认后覆盖式保存.
+ * ===================================================================== */
+type AssignUser = {
+  id: number
+  username: string
+  nickname: string
+  userType?: string
+  userTypeText?: string
+}
+
+const assignUsersDialogVisible = ref(false)
+const assignUsersDialogDeptId = ref<number | null>(null)
+const assignUsersDialogDeptName = ref('')
+const assignUsersDialogTitle = computed(
+  () => `分配用户 - ${assignUsersDialogDeptName.value || ''}`,
+)
+
+const candidateUsers = ref<AssignUser[]>([])
+const candidatePage = ref(1)
+const candidatePageSize = 20
+const candidateTotal = ref(0)
+const candidateLoadMore = ref(false)
+const assignUsersLoading = ref(false)
+const assignUserSearch = ref('')
+let assignUserSearchTimer: number | null = null
+
+/** 已选用户 id 列表 (本次会话内编辑) */
+const assignedDraftIds = ref<number[]>([])
+const selectedUserIdsSet = computed(() => new Set(assignedDraftIds.value))
+
+/** 已选用户的展示信息 (从 candidateUsers + 初始回显合并) */
+const assignedDraftItems = computed<AssignUser[]>(() => {
+  const map = new Map<number, AssignUser>()
+  for (const u of candidateUsers.value) map.set(u.id, u)
+  return assignedDraftIds.value
+    .map((id) => map.get(id))
+    .filter((u): u is AssignUser => Boolean(u))
+})
+
+const assignUsersSaving = ref(false)
+
+async function openAssignUsers(row: FlatDept) {
+  assignUsersDialogDeptId.value = row.id
+  assignUsersDialogDeptName.value = row.name
+  // 重置状态
+  candidateUsers.value = []
+  candidatePage.value = 1
+  candidateTotal.value = 0
+  assignUserSearch.value = ''
+  assignedDraftIds.value = []
+  // 回显已分配 (含子部门后代的用户)
+  try {
+    const ids = await fetchRbacDepartmentUserIds(row.id)
+    assignedDraftIds.value = ids
+  } catch {
+    assignedDraftIds.value = []
+  }
+  assignUsersDialogVisible.value = true
+}
+
+function onAssignUsersDialogOpened() {
+  // 弹窗挂载完后再加载候选, 避免初次列表空
+  loadMoreCandidates()
+}
+
+async function loadMoreCandidates() {
+  if (assignUsersLoading.value) return
+  assignUsersLoading.value = true
+  try {
+    const res: any = await fetchRbacUsers({
+      page: candidatePage.value,
+      size: candidatePageSize,
+      keyword: assignUserSearch.value || undefined,
+    })
+    const records: any[] = res.records ?? []
+    // 排除 developer / super_admin (系统保留)
+    const filtered = records.filter(
+      (u) =>
+        u.username !== 'developer' &&
+        u.username !== 'super_admin' &&
+        String(u.userType).toUpperCase() !== 'DEVELOPER',
+    )
+    if (candidatePage.value === 1) {
+      candidateUsers.value = filtered.map(toAssignUser)
+    } else {
+      // 追加, 去重
+      const seen = new Set(candidateUsers.value.map((u) => u.id))
+      for (const u of filtered) {
+        if (!seen.has(u.id)) candidateUsers.value.push(toAssignUser(u))
+      }
+    }
+    candidateTotal.value = res.total ?? 0
+    candidateLoadMore.value = candidateUsers.value.length < candidateTotal.value
+  } catch {
+    /* 错误由请求层处理 */
+  } finally {
+    assignUsersLoading.value = false
+  }
+}
+
+function toAssignUser(u: any): AssignUser {
+  return {
+    id: u.id,
+    username: u.username,
+    nickname: u.nickname ?? '',
+    userType: u.userType,
+    userTypeText: u.userTypeText,
+  }
+}
+
+function onAssignUserSearchInput() {
+  if (assignUserSearchTimer) window.clearTimeout(assignUserSearchTimer)
+  assignUserSearchTimer = window.setTimeout(() => {
+    candidatePage.value = 1
+    candidateUsers.value = []
+    loadMoreCandidates()
+  }, 250)
+}
+
+function toggleAssignUser(u: AssignUser) {
+  const set = new Set(assignedDraftIds.value)
+  if (set.has(u.id)) set.delete(u.id)
+  else set.add(u.id)
+  assignedDraftIds.value = Array.from(set)
+}
+
+function onAssignUserCheckChange(u: AssignUser, val: boolean) {
+  const set = new Set(assignedDraftIds.value)
+  if (val) set.add(u.id)
+  else set.delete(u.id)
+  assignedDraftIds.value = Array.from(set)
+}
+
+function removeAssignUser(uid: number) {
+  assignedDraftIds.value = assignedDraftIds.value.filter((id) => id !== uid)
+}
+
+function clearAssignSelection() {
+  assignedDraftIds.value = []
+}
+
+async function submitAssignUsers() {
+  if (assignUsersDialogDeptId.value == null) return
+  assignUsersSaving.value = true
+  try {
+    await assignRbacDepartmentUsers(assignUsersDialogDeptId.value, assignedDraftIds.value)
+    ElMessage.success('分配成功')
+    assignUsersDialogVisible.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.message || '保存失败')
+  } finally {
+    assignUsersSaving.value = false
+  }
 }
 
 /* =====================================================================
@@ -535,6 +837,7 @@ watch(flatList, () => {
  * ===================================================================== */
 
 onMounted(async () => {
+  await loadCompanyName()
   await loadDeptTree()
   await loadParentOptions()
 })
@@ -549,27 +852,82 @@ onBeforeUnmount(() => {
     <header class="page-header">
       <div>
         <h1>部门管理</h1>
-        <span>维护组织架构; 拖拽节点可调整父子级关系与同级排序</span>
       </div>
     </header>
 
     <el-card class="panel-card" shadow="never">
-      <div class="toolbar">
-        <el-input
-          v-model="keyword"
-          placeholder="搜索部门名称"
-          :prefix-icon="Search"
-          clearable
-          style="width: 240px"
-        />
-        <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px">
-          <el-option :value="1" label="启用" />
-          <el-option :value="0" label="禁用" />
-        </el-select>
-        <el-button :icon="Expand" @click="expandAll">全部展开</el-button>
-        <el-button :icon="Fold" @click="collapseAll">全部折叠</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreate()">新增部门</el-button>
-        <span class="hint">提示: 点击行首箭头展开/折叠; 拖拽手柄调整顺序</span>
+      <!--
+        工具栏 + 公司名称合并为同一行:
+        <p>左侧: 公司名称 + 编辑入口 (icon 按钮, hover 可见)
+        <p>右侧: 关键字搜索 / 状态过滤 / 展开折叠切换 / 新增
+        <p>分两段用竖线分隔, 保持一定距离
+      -->
+      <div class="toolbar-merged">
+        <div class="toolbar-merged__left">
+          <el-icon class="company-name-icon" :size="18" color="#409eff">
+            <OfficeBuilding />
+          </el-icon>
+          <template v-if="companyNameEditing">
+            <el-input
+              v-model="companyNameDraft"
+              size="default"
+              class="company-name-input"
+              placeholder="请输入公司名称"
+              maxlength="50"
+              show-word-limit
+              @keyup.enter="saveCompanyName"
+              @keyup.esc="cancelEditCompanyName"
+            />
+            <el-button type="primary" :icon="Check" @click="saveCompanyName">保存</el-button>
+            <el-button :icon="CircleClose" @click="cancelEditCompanyName">取消</el-button>
+          </template>
+          <template v-else class="company-name-display">
+            <span v-if="companyNameLoading" class="company-name-value text-muted">加载中…</span>
+            <span v-else-if="displayCompanyName" class="company-name-value">{{ displayCompanyName }}</span>
+            <span v-else class="company-name-value text-muted">尚未设置</span>
+            <span class="company-name-edit-trigger">
+              <el-tooltip
+                :content="editCompanyNameTooltip"
+                placement="top"
+              >
+                <el-button
+                  link
+                  type="primary"
+                  :icon="Edit"
+                  class="company-name-edit-btn"
+                  :disabled="!canEditCompanyName || companyNameLoading || rootCount !== 1"
+                  @click="startEditCompanyName"
+                />
+              </el-tooltip>
+            </span>
+          </template>
+        </div>
+
+        <div class="toolbar-merged__divider" />
+
+        <div class="toolbar-merged__right">
+          <el-input
+            v-model="keyword"
+            placeholder="搜索部门名称"
+            :prefix-icon="Search"
+            clearable
+            style="width: 220px"
+          />
+          <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 110px">
+            <el-option :value="1" label="启用" />
+            <el-option :value="0" label="禁用" />
+          </el-select>
+          <el-tooltip
+            :content="allExpanded ? '全部折叠' : '全部展开'"
+            placement="top"
+          >
+            <el-button
+              :icon="allExpanded ? Fold : Expand"
+              @click="toggleExpandAll"
+            />
+          </el-tooltip>
+          <el-button type="primary" :icon="Plus" @click="openCreate()">新增部门</el-button>
+        </div>
       </div>
 
       <el-table
@@ -628,13 +986,16 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="240" align="center" fixed="right">
+        <el-table-column label="操作" width="290" align="center" fixed="right">
           <template #default="{ row }">
             <el-tooltip content="新增子部门" placement="top">
               <el-button link type="primary" :icon="Plus" @click.stop="openCreate(row.id)" />
             </el-tooltip>
             <el-tooltip content="编辑" placement="top">
               <el-button link type="primary" :icon="Edit" @click.stop="openEdit(row)" />
+            </el-tooltip>
+            <el-tooltip content="分配用户" placement="top">
+              <el-button link type="success" :icon="UserFilled" @click.stop="openAssignUsers(row)" />
             </el-tooltip>
             <el-tooltip :content="row.status === 1 ? '禁用' : '启用'" placement="top">
               <el-button
@@ -768,6 +1129,98 @@ onBeforeUnmount(() => {
         <el-button type="primary" @click="submit">确定</el-button>
       </template>
     </el-dialog>
+
+    <!--
+      分配用户弹窗 (与角色分配用户同款布局).
+      <p>左侧: 可搜索用户列表 (排除 developer / super_admin).
+      <p>右侧: 已选用户 chips, 移除即取消选择.
+      <p>底部: 确认覆盖式保存到后端.
+    -->
+    <el-dialog
+      v-model="assignUsersDialogVisible"
+      :title="assignUsersDialogTitle"
+      width="880px"
+      destroy-on-close
+      @opened="onAssignUsersDialogOpened"
+    >
+      <div class="assign-users-layout">
+        <!-- 左侧: 可选用户 (含搜索) -->
+        <div class="assign-users-left">
+          <el-input
+            v-model="assignUserSearch"
+            placeholder="搜索用户名 / 昵称"
+            :prefix-icon="Search"
+            clearable
+            size="default"
+            class="assign-users-search"
+            @input="onAssignUserSearchInput"
+          />
+          <div v-loading="assignUsersLoading" class="assign-users-list-wrap">
+            <template v-if="candidateUsers.length > 0">
+              <div
+                v-for="u in candidateUsers"
+                :key="u.id"
+                class="assign-user-item"
+                :class="{ 'is-selected': selectedUserIdsSet.has(u.id) }"
+                @click="toggleAssignUser(u)"
+              >
+                <el-checkbox
+                  :model-value="selectedUserIdsSet.has(u.id)"
+                  @change="(val: boolean) => onAssignUserCheckChange(u, val)"
+                  @click.stop
+                />
+                <div class="assign-user-info">
+                  <span class="assign-user-name">{{ u.nickname || u.username }}</span>
+                  <span class="assign-user-username">@{{ u.username }}</span>
+                  <el-tag v-if="u.userType" size="small" effect="plain" class="assign-user-type">
+                    {{ u.userTypeText || u.userType }}
+                  </el-tag>
+                </div>
+              </div>
+              <div v-if="candidateLoadMore" class="assign-users-loadmore">
+                <el-button link type="primary" :loading="assignUsersLoading" @click="loadMoreCandidates">
+                  加载更多
+                </el-button>
+              </div>
+            </template>
+            <el-empty v-else-if="!assignUsersLoading" description="无可选用户" :image-size="60" />
+          </div>
+        </div>
+
+        <!-- 右侧: 已选用户 chips -->
+        <div class="assign-users-right">
+          <div class="assign-users-right-header">
+            <span>已选 ({{ assignedDraftIds.length }})</span>
+            <el-button
+              v-if="assignedDraftIds.length > 0"
+              link
+              type="danger"
+              size="small"
+              @click="clearAssignSelection"
+            >清空</el-button>
+          </div>
+          <div class="assign-users-chips">
+            <template v-if="assignedDraftItems.length > 0">
+              <el-tag
+                v-for="u in assignedDraftItems"
+                :key="u.id"
+ closable
+                class="assign-user-chip"
+                @close="removeAssignUser(u.id)"
+              >
+                {{ u.nickname || u.username }}
+                <span class="assign-user-chip-username">@{{ u.username }}</span>
+              </el-tag>
+            </template>
+            <el-empty v-else description="尚未选择用户" :image-size="60" />
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="assignUsersDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assignUsersSaving" @click="submitAssignUsers">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -793,17 +1246,190 @@ onBeforeUnmount(() => {
   border-radius: 8px;
 }
 
-.toolbar {
+/* =====================================================================
+ * 公司名称行 (顶级部门, 表格上方单独展示)
+ * <p>与表格视觉一致, 但不进入树形表格, 仅一行卡片.
+ * ===================================================================== */
+/* 公司名称 + 工具栏合并为同一行 */
+.toolbar-merged {
   display: flex;
-  gap: 12px;
-  margin-bottom: 12px;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e6f2ff 100%);
+  border: 1px solid #d6e8ff;
+  border-radius: 6px;
+  min-height: 48px;
+  flex-wrap: nowrap;
 }
-.hint {
-  margin-left: auto;
-  color: var(--el-text-color-secondary);
+.toolbar-merged__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.toolbar-merged__divider {
+  width: 1px;
+  height: 22px;
+  background: #dcdfe6;
+  flex-shrink: 0;
+}
+.toolbar-merged__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.company-name-icon {
+  flex-shrink: 0;
+}
+.company-name-label {
+  font-size: 16px;
+  color: #1f2937;
+  font-weight: 600;
+  flex-shrink: 0;
+  letter-spacing: 0.3px;
+}
+.company-name-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  letter-spacing: 0.3px;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.company-name-input {
+  flex: 1 1 auto;
+  max-width: 320px;
+}
+/* 编辑按钮: 紧贴公司名称值, 只保留 4px 距离; hover 公司名称左半段时显现 */
+.company-name-edit-trigger {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+.toolbar-merged__left:hover .company-name-edit-trigger {
+  opacity: 1;
+}
+/* disabled 状态在 hover 时也保持半透明, 避免误以为可点击 */
+.company-name-edit-btn.is-disabled,
+.company-name-edit-btn:disabled {
+  cursor: not-allowed;
+}
+.text-muted {
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+/* =====================================================================
+ * 分配用户弹窗 (左选右显)
+ * ===================================================================== */
+.assign-users-layout {
+  display: flex;
+  gap: 16px;
+  min-height: 480px;
+}
+.assign-users-left {
+  flex: 1.4;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.assign-users-search {
+  margin: 8px 8px 4px;
+  flex-shrink: 0;
+}
+.assign-users-list-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 8px 8px;
+}
+.assign-user-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.assign-user-item:hover {
+  background: #f5f7fa;
+}
+.assign-user-item.is-selected {
+  background: #ecf5ff;
+}
+.assign-user-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.assign-user-name {
+  font-size: 13px;
+  color: #1f2937;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assign-user-username {
   font-size: 12px;
+  color: #9ca3af;
+}
+.assign-user-type {
+  margin-left: 4px;
+}
+.assign-users-loadmore {
+  text-align: center;
+  padding: 8px 0;
+}
+.assign-users-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.assign-users-right-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+  background: #fafbfc;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1f2937;
+}
+.assign-users-chips {
+  flex: 1;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+}
+.assign-user-chip {
+  margin: 0;
+}
+.assign-user-chip-username {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #909399;
 }
 
 .dept-table-wrap {

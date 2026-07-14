@@ -67,4 +67,27 @@ public interface RbacUserService extends BaseService<RbacUserEntity> {
      * @return true=成功 false=失败
      */
     boolean assignUsersToRole(Long roleId, List<Long> userIds);
+
+    /**
+     * 查询某部门 (含后代) 关联的用户 ID 列表 (DISTINCT).
+     * <p>用于部门管理 - 分配用户弹窗回显.
+     */
+    List<Long> findUserIdsByDepartmentId(Long departmentId);
+
+    /**
+     * 查询某部门 (含后代) 关联的用户详细信息列表.
+     * <p>字段: id / username / nickname / userType / status.
+     */
+    List<java.util.Map<String, Object>> listUsersByDepartmentId(Long departmentId);
+
+    /**
+     * 覆盖式为部门分配用户 (含后代): userIds 即为该部门树范围内的最终绑定关系.
+     * <p>语义: 清除所有后代部门上对这些 userId 的关联, 然后在目标部门上重新建立 (is_primary=0).
+     * <p>主部门 (rbac_user.department_id) 不在此处维护, 仅维护 rbac_user_department 兼职关联.
+     *
+     * @param departmentId 部门 id (含其所有后代)
+     * @param userIds      最终要绑定的用户 ID 列表; 空集合 = 清空该部门树范围内所有用户
+     * @return true=成功
+     */
+    boolean assignUsersToDepartment(Long departmentId, List<Long> userIds);
 }

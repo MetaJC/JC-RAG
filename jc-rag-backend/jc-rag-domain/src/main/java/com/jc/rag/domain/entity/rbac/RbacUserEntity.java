@@ -48,6 +48,10 @@ public class RbacUserEntity {
      */
     private String userType;
     /**
+     * 主部门 id (冗余, 真实关联见 rbac_user_department 表)
+     */
+    private Long departmentId;
+    /**
      * 最近登录时间
      */
     private LocalDateTime lastLoginTime;
@@ -130,6 +134,14 @@ public class RbacUserEntity {
 
     public void setUserType(String v) {
         userType = v;
+    }
+
+    public Long getDepartmentId() {
+        return departmentId;
+    }
+
+    public void setDepartmentId(Long v) {
+        departmentId = v;
     }
 
     public LocalDateTime getLastLoginTime() {

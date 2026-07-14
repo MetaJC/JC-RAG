@@ -67,6 +67,23 @@ public interface RbacDepartmentService extends BaseService<RbacDepartmentEntity>
     boolean move(Long id, Long targetId, String position);
 
     /**
+     * 查找顶级部门 (公司根节点, parent_id=0).
+     * <p>系统约定: 顶级部门唯一, 即公司名称. 多个顶级 (按 sort 取第一个) 视为历史脏数据, 兜底.
+     *
+     * @return 顶级部门 VO, 找不到返回 null
+     */
+    RbacDepartmentVO getRootDepartment();
+
+    /**
+     * 更新公司名称 (顶级部门的 name).
+     * <p>仅 super_admin / developer 可调用 (Controller 层校验).
+     *
+     * @param newName 新公司名称
+     * @return true=成功
+     */
+    boolean updateCompanyName(String newName);
+
+    /**
      * 级联更新状态: 把目标部门 + 所有后代 (含子级 / 孙级) 一次性更新.
      * <p>父级启停时, 子部门应同步收到影响, 保持组织维度状态一致.
      *

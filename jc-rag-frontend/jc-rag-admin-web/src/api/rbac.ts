@@ -9,7 +9,17 @@ export async function fetchRbacDashboard() {
   return data
 }
 
-export async function fetchRbacUsers(params: { page?: number; size?: number; keyword?: string }) {
+export async function fetchRbacUsers(params: {
+  page?: number
+  size?: number
+  keyword?: string
+  /**
+   * 部门 ID 过滤 (可选).
+   * <p>不传 = 不按部门过滤 (全公司);
+   * <p>传入部门 id = 后端按该部门及所有后代部门递归过滤用户.
+   */
+  deptId?: number
+}) {
   const { data } = await request.get('/rbac/user', { params })
   return data
 }
@@ -153,6 +163,36 @@ export async function fetchRbacDepartments(params: { page?: number; size?: numbe
 
 export async function fetchRbacDepartmentTree() {
   const { data } = await request.get('/rbac/department/tree')
+  return data
+}
+
+/**
+ * 查询公司名称 (顶级部门).
+ * <p>部门管理页表格上方单独展示用; null 表示无顶级部门.
+ */
+export async function fetchRbacRootDepartment() {
+  const { data } = await request.get('/rbac/department/root')
+  return data as { id: number; name: string } | null
+}
+
+/**
+ * 修改公司名称 (顶级部门 name).
+ * <p>仅 super_admin / developer 可调用.
+ */
+export async function updateRbacCompanyName(name: string) {
+  const { data } = await request.put('/rbac/department/company-name', { name })
+  return data
+}
+
+/** 查询某部门 (含后代) 关联的用户 ID 列表 */
+export async function fetchRbacDepartmentUserIds(deptId: number) {
+  const { data } = await request.get(`/rbac/department/${deptId}/users`)
+  return (data ?? []) as number[]
+}
+
+/** 覆盖式为某部门 (含后代) 分配用户 */
+export async function assignRbacDepartmentUsers(deptId: number, userIds: number[]) {
+  const { data } = await request.put(`/rbac/department/${deptId}/users`, { userIds })
   return data
 }
 
