@@ -50,6 +50,12 @@ public class RbacUserSaveParam {
      */
     private List<Long> roleIds;
 
+    /**
+     * 岗位 ID 列表 (多对多, 走 rbac_user_position).
+     * 允许为空 (表示不分配岗位).
+     */
+    private List<Long> positionIds;
+
     public String getUsername() {
         return username;
     }
@@ -136,5 +142,13 @@ public class RbacUserSaveParam {
 
     public void setRoleIds(List<Long> roleIds) {
         this.roleIds = roleIds;
+    }
+
+    public List<Long> getPositionIds() {
+        return positionIds;
+    }
+
+    public void setPositionIds(List<Long> positionIds) {
+        this.positionIds = positionIds;
     }
 }

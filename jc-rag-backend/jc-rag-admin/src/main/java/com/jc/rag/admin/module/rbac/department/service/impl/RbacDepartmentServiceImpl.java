@@ -171,10 +171,7 @@ public class RbacDepartmentServiceImpl
         if (childCount > 0) {
             throw new DataConflictException("rbac.department.hasChildren", id, childCount);
         }
-        long activePos = baseMapper.countActivePositionByDepartmentId(id);
-        if (activePos > 0) {
-            throw new DataConflictException("rbac.department.hasActivePosition", id, activePos);
-        }
+        // V34 后岗位与部门解耦, 不再校验 activePos (countActivePositionByDepartmentId 固定返回 0)
         return removeById(id);
     }
 

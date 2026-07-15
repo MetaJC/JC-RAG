@@ -8,14 +8,11 @@ import com.jc.rag.admin.module.rbac.position.model.param.RbacPositionSaveParam;
 import com.jc.rag.admin.module.rbac.position.model.vo.RbacPositionVO;
 import com.jc.rag.admin.module.rbac.position.service.RbacPositionService;
 import com.jc.rag.admin.module.rbac.service.AbstractRbacService;
-import com.jc.rag.common.exception.DataConflictException;
 import com.jc.rag.common.exception.ResourceNotFoundException;
 import com.jc.rag.common.model.base.BaseServiceImpl;
 import com.jc.rag.common.web.page.PageHelper;
 import com.jc.rag.common.web.page.PageResponse;
-import com.jc.rag.domain.entity.rbac.RbacDepartmentEntity;
 import com.jc.rag.domain.entity.rbac.RbacPositionEntity;
-import com.jc.rag.domain.mapper.rbac.RbacDepartmentMapper;
 import com.jc.rag.domain.mapper.rbac.RbacPositionMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +26,7 @@ import java.util.stream.Collectors;
  * 岗位管理实现 (RBAC 组织维度)。
  * <p>继承通用 BaseServiceImpl 获得 MP 全部 CRUD, 本类只写岗位管理特有业务。
  * <p>level 1=初级 / 2=中级 / 3=高级, levelText 在此模块内自行 switch 解析 (不在 AbstractRbacService 中)。
+ * <p>岗位与部门解耦: 不再校验 / 关联部门, 用户-部门关联走 rbac_user_department。
  *
  * @author JC
  */
@@ -39,20 +37,17 @@ public class RbacPositionServiceImpl
         implements RbacPositionService {
 
     private final AbstractRbacService rbac;
-    private final RbacDepartmentMapper departmentMapper;
 
-    public RbacPositionServiceImpl(AbstractRbacService rbac,
-                                   RbacDepartmentMapper departmentMapper) {
+    public RbacPositionServiceImpl(AbstractRbacService rbac) {
         this.rbac = rbac;
-        this.departmentMapper = departmentMapper;
     }
 
     @Override
     public PageResponse<RbacPositionVO> pageList(RbacPositionQueryParam query) {
         String like = buildLike(query.getKeyword());
         IPage<Map<String, Object>> page = new Page<>(query.getPageNum(), query.getPageSize(), false);
-        page = baseMapper.pagePositions(page, like, query.getStatus(), query.getDepartmentId(), query.getLevel());
-        page.setTotal(baseMapper.countPositions(like, query.getStatus(), query.getDepartmentId(), query.getLevel()));
+        page = baseMapper.pagePositions(page, like, query.getStatus(), query.getLevel());
+        page.setTotal(baseMapper.countPositions(like, query.getStatus(), query.getLevel()));
         List<RbacPositionVO> records = page.getRecords().stream()
                 .map(this::toVO)
                 .collect(Collectors.toList());
@@ -71,7 +66,7 @@ public class RbacPositionServiceImpl
     @Override
     public List<RbacPositionVO> listActive() {
         return this.list(new QueryWrapper<RbacPositionEntity>().eq("status", 1)
-                        .orderByAsc("department_id", "sort", "id"))
+                        .orderByAsc("sort", "id"))
                 .stream()
                 .map(this::toEntityVO)
                 .collect(Collectors.toList());
@@ -80,12 +75,9 @@ public class RbacPositionServiceImpl
     @Override
     @Transactional
     public Long create(RbacPositionSaveParam param) {
-        assertDepartmentExists(param.getDepartmentId());
-        assertCodeUnique(param.getCode(), null);
         RbacPositionEntity e = new RbacPositionEntity();
-        e.setDepartmentId(param.getDepartmentId());
         e.setName(param.getName());
-        e.setCode(param.getCode());
+        e.setDisplayName(param.getDisplayName());
         e.setLevel(param.getLevel());
         e.setSort(param.getSort() == null ? 0 : param.getSort());
         e.setStatus(param.getStatus() == null ? 1 : param.getStatus());
@@ -101,15 +93,8 @@ public class RbacPositionServiceImpl
         if (e == null) {
             throw new ResourceNotFoundException("rbac.position.notfound", id);
         }
-        if (param.getCode() != null && !param.getCode().equals(e.getCode())) {
-            assertCodeUnique(param.getCode(), id);
-            e.setCode(param.getCode());
-        }
-        if (param.getDepartmentId() != null && !param.getDepartmentId().equals(e.getDepartmentId())) {
-            assertDepartmentExists(param.getDepartmentId());
-            e.setDepartmentId(param.getDepartmentId());
-        }
         if (param.getName() != null) e.setName(param.getName());
+        if (param.getDisplayName() != null) e.setDisplayName(param.getDisplayName());
         if (param.getLevel() != null) e.setLevel(param.getLevel());
         if (param.getSort() != null) e.setSort(param.getSort());
         if (param.getStatus() != null) e.setStatus(param.getStatus());
@@ -140,20 +125,6 @@ public class RbacPositionServiceImpl
 
     // ==================== 私有 ====================
 
-    private void assertCodeUnique(String code, Long excludeId) {
-        long n = baseMapper.countByCode(code, excludeId);
-        if (n > 0) {
-            throw new DataConflictException("rbac.position.codeDuplicate", code);
-        }
-    }
-
-    private void assertDepartmentExists(Long departmentId) {
-        if (departmentId == null) return;
-        if (departmentMapper.selectById(departmentId) == null) {
-            throw new ResourceNotFoundException("rbac.department.notfound", departmentId);
-        }
-    }
-
     private String buildLike(String keyword) {
         return PageHelper.buildLikeClause(keyword);
     }
@@ -172,16 +143,15 @@ public class RbacPositionServiceImpl
     private RbacPositionVO toVO(Map<String, Object> row) {
         RbacPositionVO v = new RbacPositionVO();
         v.setId(toLong(row.get("id")));
-        v.setDepartmentId(toLong(row.get("departmentId")));
-        v.setDepartmentName((String) row.get("departmentName"));
         v.setName((String) row.get("name"));
-        v.setCode((String) row.get("code"));
+        v.setDisplayName((String) row.get("displayName"));
         v.setLevel(toInt(row.get("level")));
         v.setLevelText(levelText(v.getLevel()));
         v.setSort(toInt(row.get("sort")));
         v.setStatus(toInt(row.get("status")));
         v.setStatusText(rbac.statusText(v.getStatus()));
         v.setRemark((String) row.get("remark"));
+        v.setCreatedAt(toLocalDateTime(row.get("createdAt")));
         return v;
     }
 
@@ -189,17 +159,15 @@ public class RbacPositionServiceImpl
     private RbacPositionVO toEntityVO(RbacPositionEntity e) {
         RbacPositionVO v = new RbacPositionVO();
         v.setId(e.getId());
-        v.setDepartmentId(e.getDepartmentId());
         v.setName(e.getName());
-        v.setCode(e.getCode());
+        v.setDisplayName(e.getDisplayName());
         v.setLevel(e.getLevel());
         v.setLevelText(levelText(e.getLevel()));
         v.setSort(e.getSort());
         v.setStatus(e.getStatus());
         v.setStatusText(rbac.statusText(e.getStatus()));
         v.setRemark(e.getRemark());
-        RbacDepartmentEntity dept = departmentMapper.selectById(e.getDepartmentId());
-        if (dept != null) v.setDepartmentName(dept.getName());
+        v.setCreatedAt(e.getCreatedAt());
         return v;
     }
 
@@ -213,5 +181,12 @@ public class RbacPositionServiceImpl
         if (o == null) return null;
         if (o instanceof Number n) return n.intValue();
         return Integer.valueOf(o.toString());
+    }
+
+    private static java.time.LocalDateTime toLocalDateTime(Object o) {
+        if (o == null) return null;
+        if (o instanceof java.time.LocalDateTime t) return t;
+        if (o instanceof java.sql.Timestamp ts) return ts.toLocalDateTime();
+        return null;
     }
 }

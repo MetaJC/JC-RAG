@@ -1,10 +1,12 @@
 package com.jc.rag.admin.module.rbac.position.controller;
 
 import com.jc.rag.admin.common.annotation.OperationLog;
+import com.jc.rag.admin.module.rbac.model.param.RbacPositionAssignUsersParam;
 import com.jc.rag.admin.module.rbac.position.model.param.RbacPositionQueryParam;
 import com.jc.rag.admin.module.rbac.position.model.param.RbacPositionSaveParam;
 import com.jc.rag.admin.module.rbac.position.model.vo.RbacPositionVO;
 import com.jc.rag.admin.module.rbac.position.service.RbacPositionService;
+import com.jc.rag.admin.module.rbac.service.RbacUserService;
 import com.jc.rag.common.web.R;
 import com.jc.rag.common.web.page.PageResponse;
 import jakarta.validation.Valid;
@@ -33,6 +35,7 @@ import java.util.List;
 public class RbacPositionController {
 
     private final RbacPositionService rbacPositionService;
+    private final RbacUserService rbacUserService;
 
     /** 分页列表 */
     @GetMapping
@@ -78,5 +81,25 @@ public class RbacPositionController {
     @OperationLog(module = "RBAC", action = "UPDATE_POSITION_STATUS", description = "切换岗位状态")
     public R<Boolean> updateStatus(@PathVariable Long id, @PathVariable Integer status) {
         return R.ok(rbacPositionService.updateStatus(id, status));
+    }
+
+    /**
+     * 查询某岗位关联的用户 ID 列表.
+     * <p>用于岗位管理 - 分配用户弹窗回显.
+     */
+    @GetMapping("/{id}/users")
+    public R<List<Long>> listAssignedUserIds(@PathVariable Long id) {
+        return R.ok(rbacUserService.findUserIdsByPositionId(id));
+    }
+
+    /**
+     * 覆盖式为该岗位分配用户.
+     * <p>语义: userIds 即该岗位最终绑定的用户列表, 覆盖现有绑定.
+     * <p>developer / super_admin 跳过, 不参与分配.
+     */
+    @PutMapping("/{id}/users")
+    @OperationLog(module = "RBAC", action = "ASSIGN_POSITION_USERS", description = "为岗位分配用户")
+    public R<Boolean> assignUsers(@PathVariable Long id, @RequestBody @Valid RbacPositionAssignUsersParam param) {
+        return R.ok(rbacUserService.assignUsersToPosition(id, param.getUserIds()));
     }
 }

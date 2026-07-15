@@ -96,4 +96,35 @@ public interface RbacUserService extends BaseService<RbacUserEntity> {
      * <p>不返回 passwordHash, 含部门名 / 性别 / 状态等展示字段.
      */
     RbacUserVO getUserDetail(Long userId);
+
+    /**
+     * 查询某岗位关联的用户 ID 列表.
+     * <p>用于岗位管理 - 分配用户弹窗回显.
+     */
+    List<Long> findUserIdsByPositionId(Long positionId);
+
+    /**
+     * 覆盖式为岗位分配用户: userIds 即为该岗位最终绑定的用户 ID 列表.
+     * <p>语义: 清除该岗位上的所有旧关联, 然后用 userIds 重建 (is_primary=0).
+     *
+     * @param positionId 岗位 id
+     * @param userIds    最终要绑定的用户 ID 列表; 空集合 = 清空该岗位所有用户
+     * @return true=成功
+     */
+    boolean assignUsersToPosition(Long positionId, List<Long> userIds);
+
+    /**
+     * 查询某用户绑定的岗位 ID 列表 (主岗位优先).
+     * <p>用于用户列表 / 编辑用户回显.
+     */
+    List<Long> findPositionIdsByUserId(Long userId);
+
+    /**
+     * 替换用户岗位关联 (先清后插), 用于 createUser / updateUser.
+     *
+     * @param userId      用户 id
+     * @param positionIds 新的岗位 ID 列表; null 或空 = 清空
+     * @return true=成功
+     */
+    boolean replaceUserPositions(Long userId, List<Long> positionIds);
 }

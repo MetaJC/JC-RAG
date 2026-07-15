@@ -413,13 +413,19 @@ async function loadDeptTree() {
 }
 
 function collectAllIds(nodes: DeptNode[]): number[] {
+  // 收集所有部门 id (含叶子节点).
+  // <p>为什么叶子也要收集:
+  // <p>  - 叶子节点没有子级, 展开"子级"对它无意义, 但 flatListWithUsers
+  // <p>    用 expandedIds.has(dept.id) 决定是否插入用户行, 叶子部门若不在
+  // <p>    expandedIds 里, 它的直接关联用户就不会显示.
+  // <p>  - 收集叶子节点后, 默认所有部门都在 expandedIds 中, 展开时用户行会显示.
+  // <p>  - 用户无法 toggle 叶子 (toggleExpand 里 hasChildren=false 直接 return),
+  // <p>    所以叶子一旦加入就不会被移除, 不会影响"全部折叠"按钮.
   const out: number[] = []
   const dfs = (arr: DeptNode[]) => {
     for (const n of arr) {
-      if (n.children?.length) {
-        out.push(n.id)
-        dfs(n.children)
-      }
+      out.push(n.id)
+      if (n.children?.length) dfs(n.children)
     }
   }
   dfs(nodes)
@@ -1129,13 +1135,13 @@ onBeforeUnmount(() => {
             <!--
               用户行: 性别 icon + nickname, 整行可点击打开详情.
               <p>无 drag handle, 无展开按钮, 浅灰背景, 视觉上明显区别于部门行.
-              <p>padding-left = row.level * 24, 与该部门的下属部门行 padding-left 一致,
-              <p>确保"用户行 ↔ 子部门行"在视觉上左对齐 (统一缩进粒度 = 1 级 24px).
+              <p>padding-left = row.level * 24 + 44 (44 = expand-btn 18 + gap 6 + drag-handle 14 + gap 6),
+              <p>与子部门行 "expand-btn 之后的内容 (Folder icon)" 起点对齐 (统一缩进粒度 = 1 级 24px).
             -->
             <div
               v-if="isUserRow(row)"
               class="dept-user-cell"
-              :style="{ paddingLeft: row.level * 24 + 'px' }"
+              :style="{ paddingLeft: row.level * 24 + 44 + 'px' }"
               @click="openUserDetail(row)"
             >
               <el-icon

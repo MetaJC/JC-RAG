@@ -69,11 +69,12 @@
         </if>
     </select>
 
+    <!--
+        V34 迁移后, rbac_position 表已无 department_id 列, 岗位与部门解耦.
+        <p>保留方法签名以兼容 service 调用, 固定返回 0.
+    -->
     <select id="countActivePositionByDepartmentId" resultType="long">
-        SELECT COUNT(1)
-        FROM rbac_position
-        WHERE department_id = #{departmentId}
-          AND status = 1
+        SELECT 0
     </select>
 
     <!--

@@ -45,6 +45,14 @@ public class RbacUserVO extends BaseVO {
     private String departmentName;
     private List<Long> roleIds;
     private List<String> roleNames;
+    /**
+     * 岗位 ID 列表 (多对多, 来源 rbac_user_position)
+     */
+    private List<Long> positionIds;
+    /**
+     * 岗位名列表 (用于列表展示, 来源 rbac_position.name)
+     */
+    private List<String> positionNames;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private LocalDateTime lastLoginTime;
     private String lastLoginIp;
@@ -79,6 +87,10 @@ public class RbacUserVO extends BaseVO {
     public void setRoleIds(List<Long> v) { this.roleIds = v; }
     public List<String> getRoleNames() { return roleNames; }
     public void setRoleNames(List<String> v) { this.roleNames = v; }
+    public List<Long> getPositionIds() { return positionIds; }
+    public void setPositionIds(List<Long> v) { this.positionIds = v; }
+    public List<String> getPositionNames() { return positionNames; }
+    public void setPositionNames(List<String> v) { this.positionNames = v; }
     public LocalDateTime getLastLoginTime() { return lastLoginTime; }
     public void setLastLoginTime(LocalDateTime v) { this.lastLoginTime = v; }
     public String getLastLoginIp() { return lastLoginIp; }

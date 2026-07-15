@@ -296,7 +296,7 @@ export async function deleteRbacDepartment(id: number) {
   return data
 }
 
-export async function fetchRbacPositions(params: { page?: number; size?: number; keyword?: string; status?: number; departmentId?: number; level?: number }) {
+export async function fetchRbacPositions(params: { page?: number; size?: number; keyword?: string; status?: number; level?: number }) {
   const { data } = await request.get('/rbac/position', { params })
   return data
 }
@@ -328,5 +328,17 @@ export async function updateRbacPositionStatus(id: number, status: number) {
 
 export async function deleteRbacPosition(id: number) {
   const { data } = await request.delete(`/rbac/position/${id}`)
+  return data
+}
+
+/** 查询岗位已分配的用户 ID 列表 */
+export async function fetchRbacPositionUserIds(id: number) {
+  const { data } = await request.get(`/rbac/position/${id}/users`)
+  return data
+}
+
+/** 覆盖式为岗位分配用户 */
+export async function assignRbacPositionUsers(id: number, userIds: number[]) {
+  const { data } = await request.put(`/rbac/position/${id}/users`, { userIds })
   return data
 }

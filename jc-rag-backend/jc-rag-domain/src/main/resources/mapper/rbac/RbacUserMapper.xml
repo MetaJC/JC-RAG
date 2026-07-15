@@ -27,24 +27,53 @@
         <p>- Fallback: rbac_user_department 表中任意一条 (is_primary=0 兼职), 因为"部门管理→分配用户"
         <p>  只写 rbac_user_department 不写主部门字段, 这种用户必须有 fallback 才能显示
         <p>- 用子查询先按 user_id 聚合, 避免多兼职记录产生笛卡尔积
+        <p>部门名称显示完整路径: "一级部门-二级部门-...-最低一级部门"
+        <p>- 通过 MySQL 8 递归 CTE 预计算 id -> 完整路径 映射 (dept_path)
+        <p>- 顶级部门 (公司名称, parent_id=0) 不参与显示, path=NULL
+        <p>- 子部门 path = 父 path 非空则拼接, 为空则直接用自己
+        <p>- 最终 LEFT JOIN 取 dp.path, NULL 用 COALESCE 转 '-'
     -->
     <sql id="userListColumns">
+        WITH RECURSIVE dept_path (id, path) AS (
+            -- 起点: 顶级部门 (公司名称, parent_id=0), path 设为 NULL 不显示
+            -- CAST(NULL AS CHAR(2000)) 指定足够长度, 避免递归拼接触发 Data truncation
+            SELECT id, CAST(NULL AS CHAR(2000)) AS path
+            FROM rbac_department
+            WHERE parent_id = 0
+            UNION ALL
+            -- 递归: 子部门 path = 父 path 非空则拼接, 为空则直接用自己
+            -- CAST(... AS CHAR(2000)) 显式指定 path 类型, 跟第一分支兼容
+            SELECT d.id,
+                   CAST(CASE
+                       WHEN dp.path IS NULL THEN d.name
+                       ELSE CONCAT(dp.path, '-', d.name)
+                   END AS CHAR(2000)) AS path
+            FROM rbac_department d
+            INNER JOIN dept_path dp ON d.parent_id = dp.id
+        )
         SELECT u.id, u.username, u.nickname, u.real_name, u.gender, u.phone, u.email, u.status, u.user_type,
                u.last_login_time, u.last_login_ip, u.created_at,
                COALESCE(u.department_id, ud_first.min_dept_id) AS department_id,
-               COALESCE(d_main.name, d_first.name) AS department_name,
-               GROUP_CONCAT(DISTINCT r.role_name ORDER BY r.id SEPARATOR ',') AS role_names,
-               GROUP_CONCAT(DISTINCT r.id ORDER BY r.id SEPARATOR ',') AS role_ids
+               dp.path AS department_name,
+               (SELECT GROUP_CONCAT(ur.role_id ORDER BY ur.role_id SEPARATOR ',')
+                  FROM rbac_user_role ur WHERE ur.user_id = u.id) AS role_ids,
+               (SELECT GROUP_CONCAT(r.role_name ORDER BY r.id SEPARATOR ',')
+                  FROM rbac_user_role ur
+                  INNER JOIN rbac_role r ON r.id = ur.role_id
+                  WHERE ur.user_id = u.id) AS role_names,
+               (SELECT GROUP_CONCAT(up.position_id ORDER BY up.position_id SEPARATOR ',')
+                  FROM rbac_user_position up WHERE up.user_id = u.id) AS position_ids,
+               (SELECT GROUP_CONCAT(p.name ORDER BY p.id SEPARATOR ',')
+                  FROM rbac_user_position up
+                  INNER JOIN rbac_position p ON p.id = up.position_id
+                  WHERE up.user_id = u.id) AS position_names
         FROM rbac_user u
-        LEFT JOIN rbac_user_role ur ON ur.user_id = u.id
-        LEFT JOIN rbac_role r ON r.id = ur.role_id
-        LEFT JOIN rbac_department d_main ON d_main.id = u.department_id
         LEFT JOIN (
             SELECT user_id, MIN(department_id) AS min_dept_id
             FROM rbac_user_department
             GROUP BY user_id
         ) ud_first ON ud_first.user_id = u.id
-        LEFT JOIN rbac_department d_first ON d_first.id = ud_first.min_dept_id
+        LEFT JOIN dept_path dp ON dp.id = COALESCE(u.department_id, ud_first.min_dept_id)
         WHERE u.deleted = 0
         <if test="excludeDeveloper">
             AND u.username != 'developer'
@@ -58,7 +87,6 @@
                 #{did}
             </foreach>
         </if>
-        GROUP BY u.id
         ORDER BY u.id DESC
     </sql>
 
@@ -139,6 +167,16 @@
         <p>排除 developer / super_admin 保留账号
     -->
     <select id="listUsersByDepartmentIdDirectly" resultType="java.util.LinkedHashMap">
+        -- 单级部门直接关联用户 (不递归子部门, 不含 developer / super_admin)
+        -- 兼容主部门 (rbac_user.department_id) 和兼职部门 (rbac_user_department 表)
+        -- 用 UNION 合并两路, DISTINCT 去重 (一个用户可能同时有主部门和兼职部门, 都被该部门关联)
+        SELECT u.id, u.username, u.nickname, u.gender, u.phone, u.email, u.status, u.user_type, u.created_at
+        FROM rbac_user u
+        WHERE u.deleted = 0
+          AND u.username != 'developer'
+          AND u.username != 'super_admin'
+          AND u.department_id = #{departmentId}
+        UNION
         SELECT u.id, u.username, u.nickname, u.gender, u.phone, u.email, u.status, u.user_type, u.created_at
         FROM rbac_user u
         INNER JOIN rbac_user_department ud ON ud.user_id = u.id
@@ -146,7 +184,7 @@
           AND u.username != 'developer'
           AND u.username != 'super_admin'
           AND ud.department_id = #{departmentId}
-        ORDER BY u.id ASC
+        ORDER BY id ASC
     </select>
 
     <!--

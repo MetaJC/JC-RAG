@@ -17,11 +17,10 @@ import java.util.Map;
 public interface RbacPositionMapper extends BaseMapper<RbacPositionEntity> {
 
     /**
-     * 分页统计: 按 keyword / status / departmentId / level 过滤。
+     * 分页统计: 按 keyword / status / level 过滤。
      */
     long countPositions(@Param("keyword") String keyword,
                         @Param("status") Integer status,
-                        @Param("departmentId") Long departmentId,
                         @Param("level") Integer level);
 
     /**
@@ -30,16 +29,10 @@ public interface RbacPositionMapper extends BaseMapper<RbacPositionEntity> {
     IPage<Map<String, Object>> pagePositions(IPage<Map<String, Object>> page,
                                             @Param("keyword") String keyword,
                                             @Param("status") Integer status,
-                                            @Param("departmentId") Long departmentId,
                                             @Param("level") Integer level);
 
     /**
-     * 单条详情 (含部门名)。
+     * 单条详情。
      */
     Map<String, Object> selectPositionById(@Param("id") Long id);
-
-    /**
-     * 校验 code 唯一性 (新增 / 修改)。
-     */
-    long countByCode(@Param("code") String code, @Param("excludeId") Long excludeId);
 }

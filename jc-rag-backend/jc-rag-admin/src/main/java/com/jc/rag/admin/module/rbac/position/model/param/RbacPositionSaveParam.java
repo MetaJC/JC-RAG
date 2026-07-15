@@ -6,21 +6,21 @@ import jakarta.validation.constraints.Size;
 
 /**
  * 岗位新增 / 修改 Param。
+ * <p>岗位与部门解耦: 不再传 departmentId, 用户的部门归属走 rbac_user_department。
  *
  * @author JC
  */
 public class RbacPositionSaveParam {
 
-    @NotNull(message = "所属部门 id 不能为空")
-    private Long departmentId;
-
     @NotBlank(message = "岗位名称不能为空")
     @Size(max = 50, message = "岗位名称长度不能超过 50")
     private String name;
 
-    @NotBlank(message = "岗位编码不能为空")
-    @Size(max = 50, message = "岗位编码长度不能超过 50")
-    private String code;
+    /**
+     * 显示名 (简称 / 英文名, 例如: 岗位名=人力资源, 显示名=HR)
+     */
+    @Size(max = 50, message = "显示名长度不能超过 50")
+    private String displayName;
 
     /**
      * 岗位级别: 1 初级 / 2 中级 / 3 高级
@@ -36,12 +36,10 @@ public class RbacPositionSaveParam {
     @Size(max = 255, message = "备注长度不能超过 255")
     private String remark;
 
-    public Long getDepartmentId() { return departmentId; }
-    public void setDepartmentId(Long v) { departmentId = v; }
     public String getName() { return name; }
     public void setName(String v) { name = v; }
-    public String getCode() { return code; }
-    public void setCode(String v) { code = v; }
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String v) { displayName = v; }
     public Integer getLevel() { return level; }
     public void setLevel(Integer v) { level = v; }
     public Integer getSort() { return sort; }

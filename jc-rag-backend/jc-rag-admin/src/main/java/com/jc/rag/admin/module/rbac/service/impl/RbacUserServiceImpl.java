@@ -22,8 +22,11 @@ import com.jc.rag.common.model.base.BaseServiceImpl;
 import com.jc.rag.domain.entity.rbac.RbacDepartmentEntity;
 import com.jc.rag.domain.entity.rbac.RbacUserDepartmentEntity;
 import com.jc.rag.domain.entity.rbac.RbacUserEntity;
+import com.jc.rag.domain.entity.rbac.RbacUserPositionEntity;
 import com.jc.rag.domain.entity.rbac.RbacUserRoleEntity;
 import com.jc.rag.domain.entity.rbac.RbacRolePermissionEntity;
+import com.jc.rag.domain.mapper.rbac.RbacPositionMapper;
+import com.jc.rag.domain.mapper.rbac.RbacUserPositionMapper;
 import com.jc.rag.common.web.page.PageHelper;
 import com.jc.rag.common.web.page.PageResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -53,23 +56,29 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
     private final AbstractRbacService rbac;
     private final RbacUserRoleMapper userRoleMapper;
     private final RbacUserDepartmentMapper userDepartmentMapper;
+    private final RbacUserPositionMapper userPositionMapper;
     private final RbacRolePermissionMapper rolePermissionMapper;
     private final RbacDepartmentMapper rbacDepartmentMapper;
+    private final RbacPositionMapper rbacPositionMapper;
     private final PasswordEncoder passwordEncoder;
     private final RbacDefaultsProperties rbacDefaults;
 
     public RbacUserServiceImpl(AbstractRbacService rbac,
                            RbacUserRoleMapper userRoleMapper,
                            RbacUserDepartmentMapper userDepartmentMapper,
+                           RbacUserPositionMapper userPositionMapper,
                            RbacRolePermissionMapper rolePermissionMapper,
                            RbacDepartmentMapper rbacDepartmentMapper,
+                           RbacPositionMapper rbacPositionMapper,
                            PasswordEncoder passwordEncoder,
                            RbacDefaultsProperties rbacDefaults) {
         this.rbac = rbac;
         this.userRoleMapper = userRoleMapper;
         this.userDepartmentMapper = userDepartmentMapper;
+        this.userPositionMapper = userPositionMapper;
         this.rolePermissionMapper = rolePermissionMapper;
         this.rbacDepartmentMapper = rbacDepartmentMapper;
+        this.rbacPositionMapper = rbacPositionMapper;
         this.passwordEncoder = passwordEncoder;
         this.rbacDefaults = rbacDefaults;
     }
@@ -119,6 +128,7 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         RbacUserEntity u = new RbacUserEntity();
         u.setUsername(param.getUsername());
         u.setNickname(param.getNickname());
+        u.setRealName(param.getRealName() == null ? "" : param.getRealName().trim());
         u.setEmail(param.getEmail());
         u.setUserType(param.getUserType());
         u.setStatus(param.getStatus() == null ? 1 : param.getStatus());
@@ -136,6 +146,9 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
             // P0 越权修复: 操作者分配的每个 role 已绑定的 perm 必须 ⊆ 操作者自身权限
             assertRolePermissionsWithinOperatorScope(param.getRoleIds());
             replaceUserRoles(u.getId(), param.getRoleIds());
+        }
+        if (param.getPositionIds() != null) {
+            replaceUserPositions(u.getId(), param.getPositionIds());
         }
         return u.getId();
     }
@@ -165,6 +178,9 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
             // P0 越权修复: 分配的每个 role 已绑定的 perm 必须 ⊆ 操作者自身权限
             assertRolePermissionsWithinOperatorScope(param.getRoleIds());
             replaceUserRoles(u.getId(), param.getRoleIds());
+        }
+        if (param.getPositionIds() != null) {
+            replaceUserPositions(id, param.getPositionIds());
         }
         return ok;
     }
@@ -358,6 +374,79 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         return true;
     }
 
+    @Override
+    public List<Long> findUserIdsByPositionId(Long positionId) {
+        if (positionId == null) return List.of();
+        return userPositionMapper.selectUserIdsByPositionId(positionId);
+    }
+
+    @Override
+    @Transactional
+    public boolean assignUsersToPosition(Long positionId, List<Long> userIds) {
+        if (positionId == null) {
+            throw new BizException(ResultCode.PARAM_INVALID, "岗位 id 不能为空");
+        }
+        // 岗位存在性校验
+        if (rbacPositionMapper.selectById(positionId) == null) {
+            throw new ResourceNotFoundException("rbac.position.notfound", positionId);
+        }
+        // 1) 覆盖式: 先清空该岗位所有旧关联
+        userPositionMapper.deleteByPositionId(positionId);
+        // 2) 空集合 = 仅清空
+        if (userIds == null || userIds.isEmpty()) {
+            return true;
+        }
+        // 3) 按 userIds 重建关联 (is_primary=0, 由具体业务按需变更)
+        List<RbacUserPositionEntity> list = new ArrayList<>(userIds.size());
+        for (Long uid : userIds) {
+            if (uid == null) continue;
+            RbacUserEntity u = getById(uid);
+            if (u == null) continue;
+            String uname = u.getUsername();
+            if ("developer".equalsIgnoreCase(uname) || "super_admin".equalsIgnoreCase(uname)) {
+                continue;
+            }
+            RbacUserPositionEntity up = new RbacUserPositionEntity();
+            up.setUserId(uid);
+            up.setPositionId(positionId);
+            up.setIsPrimary(0);
+            list.add(up);
+        }
+        if (!list.isEmpty()) {
+            userPositionMapper.insertBatch(list);
+        }
+        return true;
+    }
+
+    @Override
+    public List<Long> findPositionIdsByUserId(Long userId) {
+        if (userId == null) return List.of();
+        return userPositionMapper.selectPositionIdsByUserId(userId);
+    }
+
+    @Override
+    @Transactional
+    public boolean replaceUserPositions(Long userId, List<Long> positionIds) {
+        if (userId == null) return false;
+        userPositionMapper.deleteByUserId(userId);
+        if (positionIds == null || positionIds.isEmpty()) return true;
+        List<RbacUserPositionEntity> list = new ArrayList<>(positionIds.size());
+        for (Long pid : positionIds) {
+            if (pid == null) continue;
+            // 校验岗位存在
+            if (rbacPositionMapper.selectById(pid) == null) continue;
+            RbacUserPositionEntity up = new RbacUserPositionEntity();
+            up.setUserId(userId);
+            up.setPositionId(pid);
+            up.setIsPrimary(0);
+            list.add(up);
+        }
+        if (!list.isEmpty()) {
+            userPositionMapper.insertBatch(list);
+        }
+        return true;
+    }
+
     /**
      * 给当前操作者一批 roleId, 校验这些 role 已绑定的 perm 必须全部在操作者自身 perm 范围内.
      * <p>等价于: 对每个 roleId, 累加其 permissionIds, 再走 {@link AbstractRbacService#assertCanAssignPermissions}.
@@ -414,6 +503,8 @@ public class RbacUserServiceImpl extends BaseServiceImpl<RbacUserMapper, RbacUse
         v.setLastLoginIp(getStr(row, "lastLoginIp", "last_login_ip"));
         v.setRoleIds(splitIds(getStr(row, "roleIds", "role_ids")));
         v.setRoleNames(splitNames(getStr(row, "roleNames", "role_names")));
+        v.setPositionIds(splitIds(getStr(row, "positionIds", "position_ids")));
+        v.setPositionNames(splitNames(getStr(row, "positionNames", "position_names")));
         return v;
     }
 

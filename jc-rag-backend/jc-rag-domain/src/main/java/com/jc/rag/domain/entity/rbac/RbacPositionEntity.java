@@ -8,8 +8,9 @@ import java.time.LocalDateTime;
 
 /**
  * 岗位 实体 (RBAC 组织维度)。
- * <p>对应 rbac_position 表, department_id 关联 rbac_department.id, level 1=初级 / 2=中级 / 3=高级。
+ * <p>对应 rbac_position 表, level 1=初级 / 2=中级 / 3=高级。
  * <p>岗位用于补充角色 (rbac_role) 的组织维度, 第二阶段 (Pro 文档级权限) 复用。
+ * <p>岗位与部门解耦: 不再绑定 rbac_department, 由 rbac_user_department 维护用户与部门的归属。
  *
  * @author JC
  */
@@ -21,17 +22,13 @@ public class RbacPositionEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
     /**
-     * 所属部门 id
-     */
-    private Long departmentId;
-    /**
      * 岗位名称
      */
     private String name;
     /**
-     * 岗位编码 (业务引用, 唯一)
+     * 显示名 (简称 / 英文名, 例如: 岗位名=人力资源, 显示名=HR)
      */
-    private String code;
+    private String displayName;
     /**
      * 岗位级别: 1=初级 2=中级 3=高级
      */
@@ -65,14 +62,6 @@ public class RbacPositionEntity {
         id = v;
     }
 
-    public Long getDepartmentId() {
-        return departmentId;
-    }
-
-    public void setDepartmentId(Long v) {
-        departmentId = v;
-    }
-
     public String getName() {
         return name;
     }
@@ -81,12 +70,12 @@ public class RbacPositionEntity {
         name = v;
     }
 
-    public String getCode() {
-        return code;
+    public String getDisplayName() {
+        return displayName;
     }
 
-    public void setCode(String v) {
-        code = v;
+    public void setDisplayName(String v) {
+        displayName = v;
     }
 
     public Integer getLevel() {

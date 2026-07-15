@@ -33,6 +33,7 @@ import {
   fetchRbacDashboard,
   fetchRbacDepartmentTree,
   fetchRbacGenderOptions,
+  fetchRbacPositions,
   fetchRbacRoles,
   fetchRbacUsers,
   resetRbacUserPassword,
@@ -125,6 +126,8 @@ const usersSize = ref(10)
 const usersKeyword = ref('')
 
 const allRoles = ref<any[]>([])
+/** 岗位下拉选项 (含启用 + 禁用, 用于用户弹窗的岗位多选) */
+const allPositions = ref<any[]>([])
 
 const userDialogVisible = ref(false)
 const editingUserId = ref<number | null>(null)
@@ -141,6 +144,7 @@ const userForm = reactive({
   password: '',
   departmentId: null as number | null,
   roleIds: [] as number[],
+  positionIds: [] as number[],
   gender: 0 as number,
 })
 
@@ -221,6 +225,13 @@ async function loadDashboard() {
         // 同上: 兜底静默
       }
     }
+    // 岗位下拉数据 (用于用户弹窗的岗位多选, 包含启用 + 禁用, 避免已分配但已禁用的岗位 ID 找不到 option label)
+    try {
+      const data = await fetchRbacPositions({ page: 1, size: 9999 })
+      allPositions.value = data.records ?? []
+    } catch {
+      // 静默失败, 不影响列表展示
+    }
     // 部门树单独加载, 不与用户列表互相阻塞
     loadDeptTree()
     try {
@@ -275,6 +286,7 @@ function resetUserForm() {
 async function openCreateUser() {
   resetUserForm()
   await ensureDeptTreeLoaded()
+  await ensurePositionsLoaded()
   userDialogVisible.value = true
 }
 
@@ -284,6 +296,7 @@ async function openEditUser(user: any) {
     return
   }
   await ensureDeptTreeLoaded()
+  await ensurePositionsLoaded()
   editingUserId.value = user.id
   editingUserIsDeveloper.value = user.username === 'developer' || user.userType === 'DEVELOPER'
   userForm.username = user.username
@@ -296,6 +309,7 @@ async function openEditUser(user: any) {
   userForm.password = ''
   userForm.departmentId = user.departmentId ?? null
   userForm.roleIds = [...(user.roleIds || [])]
+  userForm.positionIds = [...(user.positionIds || [])]
   userForm.gender = user.gender ?? 0
   // 同步 popover 输入框 + 选中状态
   deptTreeCheckedId.value = userForm.departmentId
@@ -310,6 +324,21 @@ async function openEditUser(user: any) {
 async function ensureDeptTreeLoaded() {
   if (deptTree.value && deptTree.value.length > 0) return
   await loadDeptTree()
+}
+
+/**
+ * 确保岗位下拉数据已加载, 避免 el-select v-model 中包含已分配但下拉里没有的岗位 ID 时抛错.
+ * <p>幂等: allPositions 已有数据则直接返回.
+ * <p>用分页接口 (含启用+禁用), 保证已分配但已禁用的岗位也能在下拉里找到 label.
+ */
+async function ensurePositionsLoaded() {
+  if (allPositions.value && allPositions.value.length > 0) return
+  try {
+    const data = await fetchRbacPositions({ page: 1, size: 9999 })
+    allPositions.value = data.records ?? []
+  } catch {
+    // 静默失败: 不阻断弹窗打开
+  }
 }
 
 async function submitUser() {
@@ -739,6 +768,23 @@ onMounted(() => {
                 <span v-else class="text-muted">-</span>
               </template>
             </el-table-column>
+            <el-table-column label="岗位" min-width="160">
+              <template #default="{ row }">
+                <template v-if="row.positionNames && row.positionNames.length">
+                  <el-tag
+                    v-for="(name, idx) in row.positionNames"
+                    :key="idx"
+                    size="small"
+                    type="info"
+                    effect="plain"
+                    class="role-tag"
+                  >
+                    {{ name }}
+                  </el-tag>
+                </template>
+                <span v-else class="text-muted">-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="类型" min-width="100">
               <template #default="{ row }">
                 <el-tag effect="plain">{{ row.userTypeText || row.userType }}</el-tag>
@@ -813,138 +859,201 @@ onMounted(() => {
     <el-dialog
       v-model="userDialogVisible"
       :title="editingUserId ? '编辑用户' : '新建用户'"
-      width="560px"
+      width="780px"
       destroy-on-close
     >
-      <el-form label-position="top">
-        <el-form-item label="用户名">
-          <el-input v-model="userForm.username" :disabled="Boolean(editingUserId)" />
-        </el-form-item>
-        <el-form-item label="昵称">
-          <el-input v-model="userForm.nickname" />
-        </el-form-item>
-        <el-form-item label="真实姓名" required>
-          <el-input
-            v-model="userForm.realName"
-            maxlength="50"
-            show-word-limit
-            placeholder="请输入用户真实姓名"
-          />
-        </el-form-item>
-        <el-form-item label="性别">
-          <el-select v-model="userForm.gender" placeholder="选择性别" clearable>
-            <el-option v-for="opt in genderOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="所属部门">
-          <!--
-            部门下拉框: popover + tree, 与部门管理页面编辑弹窗的父级部门下拉框一致.
-            <p>单选; 选中的 id 写入 userForm.departmentId.
-          -->
-          <el-popover
-            :visible="deptPopoverVisible"
-            placement="bottom-start"
-            :width="380"
-            trigger="manual"
-            :teleported="true"
-            popper-class="jc-parent-tree-popover"
-            @show="onDeptPopoverShow"
-            @hide="onDeptPopoverHide"
-          >
-            <template #reference>
+      <!--
+        左右布局, 创新结构:
+        <p>label 框 = 14px 星号位 (单独一列) + 6px 间距 + label 文字 (右对齐)
+        <p>- 星号位: required 时显示红 *, 否则留空 (占位 14px), 保证所有 label 文字对齐
+        <p>- label 文字: text-align:right, 紧贴 input 左边缘
+        <p>- 所有列内 label 文字右边缘 X 坐标一致, input 起点 X 坐标一致
+      -->
+      <el-form label-position="right" label-width="80px" class="user-dialog-form">
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="用户名">
+              <el-input v-model="userForm.username" :disabled="Boolean(editingUserId)" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="昵称">
+              <el-input v-model="userForm.nickname" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="真实姓名" required>
               <el-input
-                :model-value="deptInputDisplay"
-                placeholder="点击选择所属部门 (可留空)"
-                readonly
-                clearable
-                @click="deptPopoverVisible = !deptPopoverVisible"
-                @clear="onClearDept"
-              >
-                <template #prefix>
-                  <el-icon><Connection /></el-icon>
-                </template>
-              </el-input>
-            </template>
-
-            <div class="jc-parent-tree-panel">
-              <div class="jc-parent-tree-toolbar">
-                <el-input
-                  v-model="deptTreeKeyword"
-                  placeholder="搜索部门名称"
-                  :prefix-icon="Search"
-                  clearable
-                  size="small"
+                v-model="userForm.realName"
+                maxlength="50"
+                show-word-limit
+                placeholder="请输入用户真实姓名"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="性别">
+              <el-select v-model="userForm.gender" placeholder="选择性别" clearable style="width: 100%">
+                <el-option v-for="opt in genderOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="手机号">
+              <el-input v-model="userForm.phone" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="邮箱">
+              <el-input v-model="userForm.email" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="用户类型">
+              <el-select v-model="userForm.userType" :disabled="editingUserIsDeveloper" style="width: 100%">
+                <el-option v-if="editingUserIsDeveloper" label="开发者账号" value="DEVELOPER" />
+                <el-option label="管理员" value="ADMIN" />
+                <el-option label="普通用户" value="NORMAL" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="角色">
+              <el-select v-model="userForm.roleIds" multiple :disabled="editingUserIsDeveloper" style="width: 100%">
+                <el-option
+                  v-for="role in allRoles"
+                  :key="role.id"
+                  :label="role.roleName"
+                  :value="role.id"
                 />
-                <el-button-group size="small">
-                  <el-button :icon="Expand" @click="expandAllDeptOptions" />
-                  <el-button :icon="Fold" @click="collapseAllDeptOptions" />
-                </el-button-group>
-              </div>
-              <div class="jc-parent-tree-body">
-                <el-tree
-                  ref="deptOptionTreeRef"
-                  :data="deptTree"
-                  :props="deptTreeProps"
-                  node-key="id"
-                  :filter-node-method="filterDeptNode"
-                  :expand-on-click-node="false"
-                  :default-expand-all="true"
-                  highlight-current
-                  @node-click="onDeptOptionNodeClick"
-                  @node-dblclick="onDeptOptionNodeDblClick"
-                >
-                  <template #default="{ node, data }">
-                    <span class="jc-parent-tree-node">
-                      <el-icon :size="14" class="jc-parent-tree-node-icon">
-                        <FolderOpened v-if="data.children?.length" />
-                        <Document v-else />
-                      </el-icon>
-                      <span class="jc-parent-tree-node-label">{{ node.label }}</span>
-                    </span>
-                  </template>
-                </el-tree>
-              </div>
-              <div class="jc-parent-tree-footer">
-                <span class="jc-parent-tree-hint">双击节点快速选择 / 点击确认按钮选择</span>
-                <div>
-                  <el-button size="small" @click="deptPopoverVisible = false">取消</el-button>
-                  <el-button size="small" type="primary" @click="confirmDept">确认选择</el-button>
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <!--
+          部门 / 岗位 同一行两列展示.
+          <p>左: 所属部门 (popover + tree, 单选)
+          <p>右: 岗位 (多选, 含启用 + 禁用, 避免已分配但已禁用的岗位 ID 找不到 label)
+        -->
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item label="所属部门">
+              <!--
+                部门下拉框: popover + tree, 与部门管理页面编辑弹窗的父级部门下拉框一致.
+                <p>单选; 选中的 id 写入 userForm.departmentId.
+              -->
+              <el-popover
+                :visible="deptPopoverVisible"
+                placement="bottom-start"
+                :width="380"
+                trigger="manual"
+                :teleported="true"
+                popper-class="jc-parent-tree-popover"
+                @show="onDeptPopoverShow"
+                @hide="onDeptPopoverHide"
+              >
+                <template #reference>
+                  <el-input
+                    :model-value="deptInputDisplay"
+                    placeholder="点击选择所属部门 (可留空)"
+                    readonly
+                    clearable
+                    @click="deptPopoverVisible = !deptPopoverVisible"
+                    @clear="onClearDept"
+                  >
+                    <template #prefix>
+                      <el-icon><Connection /></el-icon>
+                    </template>
+                  </el-input>
+                </template>
+
+                <div class="jc-parent-tree-panel">
+                  <div class="jc-parent-tree-toolbar">
+                    <el-input
+                      v-model="deptTreeKeyword"
+                      placeholder="搜索部门名称"
+                      :prefix-icon="Search"
+                      clearable
+                      size="small"
+                    />
+                    <el-button-group size="small">
+                      <el-button :icon="Expand" @click="expandAllDeptOptions" />
+                      <el-button :icon="Fold" @click="collapseAllDeptOptions" />
+                    </el-button-group>
+                  </div>
+                  <div class="jc-parent-tree-body">
+                    <el-tree
+                      ref="deptOptionTreeRef"
+                      :data="deptTree"
+                      :props="deptTreeProps"
+                      node-key="id"
+                      :filter-node-method="filterDeptNode"
+                      :expand-on-click-node="false"
+                      :default-expand-all="true"
+                      highlight-current
+                      @node-click="onDeptOptionNodeClick"
+                      @node-dblclick="onDeptOptionNodeDblClick"
+                    >
+                      <template #default="{ node, data }">
+                        <span class="jc-parent-tree-node">
+                          <el-icon :size="14" class="jc-parent-tree-node-icon">
+                            <FolderOpened v-if="data.children?.length" />
+                            <Document v-else />
+                          </el-icon>
+                          <span class="jc-parent-tree-node-label">{{ node.label }}</span>
+                        </span>
+                      </template>
+                    </el-tree>
+                  </div>
+                  <div class="jc-parent-tree-footer">
+                    <span class="jc-parent-tree-hint">双击节点快速选择 / 点击确认按钮选择</span>
+                    <div>
+                      <el-button size="small" @click="deptPopoverVisible = false">取消</el-button>
+                      <el-button size="small" type="primary" @click="confirmDept">确认选择</el-button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </el-popover>
-        </el-form-item>
-        <el-form-item label="手机号">
-          <el-input v-model="userForm.phone" />
-        </el-form-item>
-        <el-form-item label="邮箱">
-          <el-input v-model="userForm.email" />
-        </el-form-item>
-        <el-form-item label="用户类型">
-          <el-select v-model="userForm.userType" :disabled="editingUserIsDeveloper">
-            <el-option v-if="editingUserIsDeveloper" label="开发者账号" value="DEVELOPER" />
-            <el-option label="管理员" value="ADMIN" />
-            <el-option label="普通用户" value="NORMAL" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="userForm.roleIds" multiple :disabled="editingUserIsDeveloper">
-            <el-option
-              v-for="role in allRoles"
-              :key="role.id"
-              :label="role.roleName"
-              :value="role.id"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="密码">
-          <el-input
-            v-model="userForm.password"
-            type="password"
-            show-password
-            placeholder="新建用户建议填写，编辑时留空表示不修改"
-          />
-        </el-form-item>
+              </el-popover>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="岗位">
+              <el-select
+                v-model="userForm.positionIds"
+                multiple
+                clearable
+                filterable
+                placeholder="可多选 (不分配岗位留空即可)"
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="pos in allPositions"
+                  :key="pos.id"
+                  :label="pos.name"
+                  :value="pos.id"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="20">
+          <el-col :span="24">
+            <el-form-item label="密码">
+              <el-input
+                v-model="userForm.password"
+                type="password"
+                show-password
+                placeholder="新建用户建议填写，编辑时留空表示不修改"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
       <template #footer>
         <el-button @click="userDialogVisible = false">取消</el-button>
@@ -1178,6 +1287,61 @@ onMounted(() => {
 .dept-filter-chip {
   margin-right: 4px;
   font-size: 12px;
+}
+
+/* =====================================================================
+ * 用户弹窗 (新建/编辑) form 布局
+ * <p>label 框 = 14px 星号位 (单独一列) + 6px 间距 + label 文字 (右对齐)
+ * <p>- 星号位: required 时显示红 *, 否则留空 (占位 14px), 保证所有 label 文字对齐
+ * <p>- label 文字: text-align:right, 紧贴 input 左边缘
+ * <p>- 所有列内 label 文字右边缘 X 坐标一致, input 起点 X 坐标一致
+ * <p>- 第一列 (奇数 col) label 宽 90px, 兼容 4 字符中文 + 星号位
+ * <p>- 第二列 (偶数 col) label 宽 40px, 短 label 不需要那么宽
+ * <p>- 沿用 Element Plus 原生 float 布局, 不破坏 el-input / el-select 内部宽度计算
+ * ===================================================================== */
+.user-dialog-form .el-form-item {
+  margin-right: 0 !important;
+  margin-bottom: 16px;
+}
+.user-dialog-form .el-form-item__label {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px 0 0 !important;
+  text-align: right;
+  color: #606266;
+  vertical-align: middle;
+}
+/* 第一列 (奇数 col) 沿用 el-form label-width=90px, 不额外覆盖 */
+/* 第二列 (偶数 col) label 改 40px, 短 label 不需要那么宽 */
+.user-dialog-form .el-row > .el-col:nth-child(even) .el-form-item__label {
+  width: 40px !important;
+}
+.user-dialog-form .el-row > .el-col:nth-child(even) .el-form-item__content {
+  margin-left: 40px !important;
+}
+/* 14px 星号位: required 时显示红 *, 否则留空 (占位, 不挤占 label 文字) */
+.user-dialog-form .el-form-item__label::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  margin-right: 6px;
+  text-align: left;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.user-dialog-form .el-form-item.is-required .el-form-item__label::before {
+  content: '*';
+  color: #f56c6c;
+  font-size: 14px;
+}
+.user-dialog-form .el-form-item__content > .el-input,
+.user-dialog-form .el-form-item__content > .el-select,
+.user-dialog-form .el-form-item__content > .el-popover {
+  width: 100%;
+}
+.user-dialog-form .el-form-item__error {
+  padding-top: 2px;
 }
 </style>
 

@@ -1,7 +1,10 @@
 package com.jc.rag.admin.module.rbac.position.model.vo;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.jc.rag.common.model.base.BaseVO;
+
+import java.time.LocalDateTime;
 
 /**
  * 岗位出参 VO (前端展示用)。
@@ -11,25 +14,21 @@ import com.jc.rag.common.model.base.BaseVO;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class RbacPositionVO extends BaseVO {
 
-    private Long departmentId;
-    private String departmentName;
     private String name;
-    private String code;
+    private String displayName;
     private Integer level;
     private String levelText;
     private Integer sort;
     private Integer status;
     private String statusText;
     private String remark;
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private LocalDateTime createdAt;
 
-    public Long getDepartmentId() { return departmentId; }
-    public void setDepartmentId(Long v) { departmentId = v; }
-    public String getDepartmentName() { return departmentName; }
-    public void setDepartmentName(String v) { departmentName = v; }
     public String getName() { return name; }
     public void setName(String v) { name = v; }
-    public String getCode() { return code; }
-    public void setCode(String v) { code = v; }
+    public String getDisplayName() { return displayName; }
+    public void setDisplayName(String v) { displayName = v; }
     public Integer getLevel() { return level; }
     public void setLevel(Integer v) { level = v; }
     public String getLevelText() { return levelText; }
@@ -42,4 +41,6 @@ public class RbacPositionVO extends BaseVO {
     public void setStatusText(String v) { statusText = v; }
     public String getRemark() { return remark; }
     public void setRemark(String v) { remark = v; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime v) { createdAt = v; }
 }
