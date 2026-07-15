@@ -1,106 +1,80 @@
 # Flyway 数据库迁移规范
 
-> 本项目使用 Flyway 对 MySQL 数据库进行版本化迁移, 社区版与商业版均集成.
+> 社区版 `jc_rag` 的数据库结构以 Flyway 为唯一事实来源。商业版 `jc_rag_pro` 启动时自动加载社区版迁移, 但不得覆盖商业版专属结构。
 
 ## 1. 目录约定
 
 | 版本 | 路径 | 说明 |
 |---|---|---|
-| 社区版 | `jc-rag-community/jc-rag-backend/jc-rag-admin/src/main/resources/db/migration/community/` | 社区版 + 商业版共享主源 |
-| 商业版 | `jc-rag-pro/jc-rag-pro-backend/jc-rag-pro-core/jc-rag-pro/src/main/resources/db/migration/pro/` | 商业版专属增量, 社区版不要往这里放 |
+| 社区版 | `jc-rag-community/jc-rag-backend/jc-rag-admin/src/main/resources/db/migration/community/` | 社区版主源, 也是商业版共享基线 |
+| 商业版 | `jc-rag-pro/jc-rag-pro-backend/jc-rag-pro-core/jc-rag-pro/src/main/resources/db/migration/pro/` | 商业版专属增量与兼容补丁 |
 
-### 1.1 命名规则
-- 文件名: `V<版本号>__<描述>.sql`, **双下划线** 不可省略
-- 描述用 snake_case, 简短说明本次变更内容
-- 例: `V28__rbac_department_position_menu.sql`
+## 2. 命名规则
 
-### 1.2 版本号规范
-- 社区版: `V1 ~ V99` (V1~V26 已合并入 V1 all-in-one, 当前 V27~V28 是分步脚本)
-- 商业版: `V101+` 起, 避免与社区版冲突
+### 2.1 社区版
+- 文件名: `V<版本号>__<描述>.sql`
+- 描述使用 snake_case
+- 例: `V35__rbac_user_position.sql`
 
-## 2. SQL 编写规范
+### 2.2 商业版
+- 文件名: `V10000+__<描述>.sql`
+- 当前约定从 `V10001` 开始, 预留给商业版长期独占
+- 禁止与社区版复用同一个版本号
 
-### 2.1 严禁
-- ❌ **不要写 `USE jc_rag;` / `USE jc_rag_pro;`** — Flyway 库名由 `spring.datasource.url` 决定
-- ❌ 不要在迁移脚本里写 DML 业务数据 (种子数据放 `V3__seed_data.sql` 之外需评估)
-- ❌ 不要修改已执行的脚本 (Flyway checksum 校验会失败)
+## 3. 自动同步原则
 
-### 2.2 必须
-- ✅ 所有 CREATE TABLE 必须有 `IF NOT EXISTS` (幂等)
-- ✅ 所有 INSERT 必须有 `WHERE NOT EXISTS` 或 `ON DUPLICATE KEY UPDATE` (幂等)
-- ✅ 表结构变更要同步更新本目录下 `database-schema.md` 文档
-- ✅ 写中文注释说明本脚本目的 / 业务背景 / 设计权衡 (阿里规约)
-
-## 3. 双版本同步机制
-
-### 3.1 商业版如何包含社区版
-商业版启动模块 (`jc-rag-pro-app-admin` / `jc-rag-pro-app-user`) 通过 Maven 依赖 `jc-rag-admin`:
-
-```xml
-<!-- jc-rag-pro/jc-rag-pro-backend/jc-rag-pro-app/jc-rag-pro-app-admin/pom.xml -->
-<dependency>
-    <groupId>com.jc</groupId>
-    <artifactId>jc-rag-admin</artifactId>
-</dependency>
-```
-
-`jc-rag-admin` 资源中的 `db/migration/community/` 自动进入 classpath, 商业版 Flyway 通过双 locations 加载:
-
-```yaml
-# jc-rag-pro/jc-rag-pro-backend/jc-rag-pro-app/jc-rag-pro-app-admin/src/main/resources/application.yml
-spring:
-  flyway:
-    locations: classpath:db/migration/pro,classpath:db/migration/community
-    baseline-on-migrate: true
-    baseline-version: 27
-```
-
-商业版 Flyway 启动时按顺序执行:
-1. `classpath:db/migration/community` (社区版 V1~V99)
-2. `classpath:db/migration/pro` (商业版 V101+)
-
-物理保证: 商业版任何数据库变更前, 社区版的所有变更已先执行.
-
-### 3.2 新增 community 脚本后的同步步骤
-1. 在 `community/V<新版本>__<描述>.sql` 写脚本
-2. **同时** 在商业版 `jc_rag_pro` 库手动执行同一脚本 (避免商业版首次启动时 checksum 触发问题)
-3. 删除 `flyway_schema_history` 中失败/历史脏记录
-4. 重启商业版, Flyway 会自动识别并把脚本登记到 `flyway_schema_history` (NOT EXISTS 保证幂等)
-
-## 4. baseline 配置
-
-存量库 (已手工跑过 V1~V26) 首次启动时, 不希望 Flyway 重跑历史脚本, 设置 baseline:
+### 3.1 启动加载顺序
+商业版启动模块依赖 `jc-rag-admin`, classpath 会同时拥有两套迁移目录:
 
 ```yaml
 spring:
   flyway:
-    baseline-on-migrate: true
-    baseline-version: 27  # V27 是当前第一个 Flyway 自动执行的脚本
+    locations: classpath:db/migration/community,classpath:db/migration/pro
 ```
 
-- 当 Flyway 启动发现非空库且无 `flyway_schema_history` 表时, 在 `baseline-version` 指定的版本处打 baseline
-- 后续 V28+ 才会被自动执行, V1~V26 视为已执行
+执行原则:
+1. 先执行社区版迁移, 保证商业版天然包含社区版能力
+2. 再执行商业版迁移, 只做商业版专属结构和兼容补丁
 
-## 5. 已执行版本 (截至 2026-07-13)
+### 3.2 社区版新增结构时怎么同步到商业版
+1. 社区版新功能先在 `community/` 下新增 Flyway 脚本
+2. 商业版重启时自动执行同一脚本到 `jc_rag_pro`
+3. 如果商业版已有同名业务但实现不同:
+   - 社区版脚本必须写成向后兼容的增量形式
+   - 商业版再补一条 `V10000+` 兼容脚本兜底
+   - 禁止让社区版脚本直接重建或覆盖商业版专属表
 
-| V 号 | 描述 | 库 |
-|---|---|---|
-| 27 | rbac department position | 两库均已 baseline + 执行 |
-| 28 | rbac department position menu | 两库均已手动同步, 等待重启自动登记 |
+### 3.3 兼容设计红线
+- 禁止在迁移脚本中 `DROP` 商业版专属表
+- 禁止社区版脚本假设商业版与社区版字段完全一致
+- 对已有表新增列、索引、默认值时优先使用增量方式
+- 结构差异较大的商业版能力应落独立 `pro_` 表, 不与社区版表硬碰撞
 
-后续新增版本请在本表追加一行, 注明首次执行时间和执行人.
+## 4. SQL 编写规范
 
-## 6. 常见问题
+### 4.1 严禁
+- 不要写 `USE jc_rag;` 或 `USE jc_rag_pro;`
+- 不要修改已执行的历史脚本
+- 不要把临时排障 SQL 当正式迁移脚本提交
 
-### 6.1 启动报 "Migration checksum mismatch"
-原因: 已执行的脚本被修改, Flyway 校验失败.
-解决: 不要改历史脚本! 如果必须改, 删除 `flyway_schema_history` 对应记录后重启 (但会重跑, 注意幂等).
+### 4.2 必须
+- DDL/DML 尽量幂等
+- 迁移脚本顶部写清楚目的和兼容说明
+- 表结构变更后同步更新社区版或商业版对应文档
 
-### 6.2 启动报 "Migration failed"
-原因: 脚本里有语法错误 / 字段不存在 / 表不存在.
-解决:
-1. 查看具体错误行号
-2. 修复脚本
-3. 手动在库中清理脏数据 (回滚到 baseline)
-4. 删除 `flyway_schema_history` 中失败记录
-5. 重启服务
+## 5. baseline 说明
+
+新建空库:
+- 社区版 `jc_rag` 从 `V1` 开始完整执行
+- 商业版 `jc_rag_pro` 从社区版 `V1` 开始, 再执行商业版 `V10001+`
+
+存量库:
+- 如果历史库曾人工执行过部分脚本, 只允许在确认现状后设置 baseline
+- baseline 只用于接管旧库, 不能替代正常迁移
+
+## 6. 本次规范化后的要求
+
+- 社区版数据库结构变更只需要维护 `community/` 目录
+- 商业版不得再要求“手工同步 community SQL”
+- 商业版专属数据库变更只允许进入 `pro/` 目录
+- 文档必须明确标注作用库: 社区版 `jc_rag` / 商业版 `jc_rag_pro`

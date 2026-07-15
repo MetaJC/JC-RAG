@@ -33,13 +33,17 @@ ON DUPLICATE KEY UPDATE
     status = 1;
 
 -- 2. 确保 RBAC 子菜单存在并启用
+-- 说明: MySQL 8 不允许 INSERT...ON DUPLICATE KEY UPDATE 同时 SELECT 同一张表,
+--   先用变量取出 rbac_manage 的 id, 再 INSERT, 避免 "can't specify target table for update in FROM clause"
+SELECT id INTO @rbac_manage_id FROM sys_permission WHERE perm_code = 'menu:rbac_manage' LIMIT 1;
+
 INSERT INTO sys_permission
     (perm_code, perm_name, perm_type, parent_id, path, icon, sort, component, visible, status)
 VALUES
-    ('sys:rbac:users',         '用户管理', 'MENU', (SELECT id FROM sys_permission WHERE perm_code='menu:rbac_manage'), '/rbac/users',         'User',        1, 'views/RbacUserView.vue',        1, 1),
-    ('sys:rbac:roles',         '角色管理', 'MENU', (SELECT id FROM sys_permission WHERE perm_code='menu:rbac_manage'), '/rbac/roles',         'UserFilled',  2, 'views/RbacRoleView.vue',        1, 1),
-    ('sys:rbac:menus',         '菜单管理', 'MENU', (SELECT id FROM sys_permission WHERE perm_code='menu:rbac_manage'), '/rbac/menus',         'Menu',        3, 'views/RbacMenuView.vue',        1, 1),
-    ('sys:rbac:permissions',   '权限管理', 'MENU', (SELECT id FROM sys_permission WHERE perm_code='menu:rbac_manage'), '/rbac/permissions',   'Key',         4, 'views/RbacPermissionView.vue',  1, 1)
+    ('sys:rbac:users',         '用户管理', 'MENU', @rbac_manage_id, '/rbac/users',         'User',        1, 'views/RbacUserView.vue',        1, 1),
+    ('sys:rbac:roles',         '角色管理', 'MENU', @rbac_manage_id, '/rbac/roles',         'UserFilled',  2, 'views/RbacRoleView.vue',        1, 1),
+    ('sys:rbac:menus',         '菜单管理', 'MENU', @rbac_manage_id, '/rbac/menus',         'Menu',        3, 'views/RbacMenuView.vue',        1, 1),
+    ('sys:rbac:permissions',   '权限管理', 'MENU', @rbac_manage_id, '/rbac/permissions',   'Key',         4, 'views/RbacPermissionView.vue',  1, 1)
 ON DUPLICATE KEY UPDATE
     perm_name = VALUES(perm_name),
     parent_id = VALUES(parent_id),

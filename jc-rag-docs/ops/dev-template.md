@@ -23,7 +23,7 @@
 1. **`application.yml` 长期 untracked**——新克隆后需手动从别处复制，否则启动报 `Could not resolve placeholder 'spring.profiles.active'`
 2. **`application-dev.yml` 含硬编码密码**——已入 git，存在**安全风险**（任何 git 历史 viewer 都能看到）
 3. **`.gitignore` 缺规则**——`application.yml` 和未来的 `application-nas.yml` 没被显式忽略，依赖"开发者不 add"的纪律
-4. **2026-06-27 计划未落地**——7月2日代办.md 标记 `[x]` 的 application-nas.yml 创建和 application.yml gitignore 实际**未执行**
+4. **2026-06-27 计划未落地**——`archive/2026-07/project-scan-and-todo-2026-07-02.md` 中记录的 application-nas.yml 创建和 application.yml gitignore 当时实际**未执行**
 
 ---
 

@@ -10,10 +10,10 @@
 -- 兼容: 已使用 ALTER TABLE 增量更新, 此文件仅做记录 (再次执行安全)
 -- =============================================================================
 
--- 增量加列 (重复执行安全: MySQL 8 不支持 IF NOT EXISTS 在 ADD COLUMN,
--- 实际生产环境用 Flyway/Liquibase 管理; 此处保留 ALTER 供手工回放)
+-- 增量加列 (Flyway 自身保证 V25 只跑一次, 不需要 IF NOT EXISTS;
+--  MySQL 8 不支持 ADD COLUMN IF NOT EXISTS, 直接 ADD 即可)
 ALTER TABLE sys_agents
-    ADD COLUMN IF NOT EXISTS is_system TINYINT NOT NULL DEFAULT 1
+    ADD COLUMN is_system TINYINT NOT NULL DEFAULT 1
         COMMENT '是否系统智能体: 1=系统(Admin管控) 0=用户'
         AFTER agent_key;
 

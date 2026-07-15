@@ -12,7 +12,7 @@ SELECT id, perm_code, perm_name, perm_type, parent_id, path, visible, status
   FROM sys_permission 
  WHERE perm_type IN ('MENU', 'CATALOG')
  ORDER BY parent_id, sort, id;
-维护菜单树结构、路由、图标; 拖拽可调整父子级与排序
+
 -- 2. 启用所有顶级菜单（确保核心功能可见）
 UPDATE sys_permission
    SET visible = 1, status = 1

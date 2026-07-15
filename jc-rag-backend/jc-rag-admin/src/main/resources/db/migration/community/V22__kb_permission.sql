@@ -116,7 +116,7 @@ SET @ddl := CONCAT(
     'perm_name=VALUES(perm_name), perm_type=VALUES(perm_type), parent_id=VALUES(parent_id), ',
     'path=VALUES(path), icon=VALUES(icon), sort=VALUES(sort), component=VALUES(component), visible=1, status=1'
 );
-PREPARE stmt FROM @ddl; EXECUTE stmt; USING @kb_parent_id; DEALLOCATE PREPARE stmt;
+PREPARE stmt FROM @ddl; EXECUTE stmt USING @kb_parent_id; DEALLOCATE PREPARE stmt;
 
 -- 同步 super_admin / admin 角色的菜单绑定
 SET @ddl := CONCAT(
