@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -142,7 +143,12 @@ class Settings(BaseModel):
 
 
 def _load_yaml_config() -> dict[str, Any]:
-    config_path = Path(__file__).resolve().parents[2] / "rag_config.yml"
+    config_path = Path(
+        os.environ.get(
+            "JC_RAG_COMMUNITY_CONFIG",
+            Path(__file__).resolve().parents[2] / "rag_config.yml",
+        )
+    )
     with config_path.open("r", encoding="utf-8") as file:
         return yaml.safe_load(file)
 

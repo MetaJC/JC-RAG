@@ -17,13 +17,15 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+health_router = APIRouter()
 
 
-@router.get("/health")
+@health_router.get("/health")
 async def health() -> dict:
     settings = get_settings()
     return {
         "status": "UP",
+        "edition": "community",
         "service": settings.app.name,
         "version": settings.app.version,
         "activeMode": settings.providers.active_mode,

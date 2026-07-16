@@ -55,13 +55,37 @@ def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
     return "cpu"
 
 
-@lru_cache(maxsize=2)
+# 同一 model_path 复用已加载实例, 忽略 device 差异.
+# 原因: sentence-transformers 3.3.1 在 dml/cpu/cuda 切换时会重新加载并触发
+# backend 切换, 当前 venv 下 cpu backend 加载 bge-large-zh-v1.5 会失败.
+# Pro 集成场景: Java 端 payload 的 ragOverride.embedding.device 与启动时
+# lifespan 探测的 device 不一致 (例如 dml → cpu), 改用 dict 缓存可彻底规避.
+_model_cache: dict[str, Any] = {}
+
+
 def _load_model(model_path: str, device: str):
     from sentence_transformers import SentenceTransformer
 
     if not model_path or not Path(model_path).exists():
         raise ValueError(f"embedding.model_path 不存在或不可访问：{model_path}")
-    return SentenceTransformer(model_path, device=device)
+    if model_path in _model_cache:
+        cached = _model_cache[model_path]
+        logger.info(
+            "Embedding 复用缓存: model=%s, 实际 device=%s, 请求 device=%s",
+            model_path, getattr(cached, "device", "unknown"), device,
+        )
+        return cached
+    # 第一次加载: 用 _resolve_device("auto") 探测的 device, 而非 Java 端传过来的 device
+    # Pro 启动时 lifespan 已用 auto 探测加载过一次 (dml), 此处保证 device 一致
+    resolved_device = _resolve_device("auto", None)
+    if resolved_device != device:
+        logger.warning(
+            "Embedding 加载 device 归一化: 请求 %s → 实际 %s (避免 backend 切换崩溃)",
+            device, resolved_device,
+        )
+    model = SentenceTransformer(model_path, device=resolved_device)
+    _model_cache[model_path] = model
+    return model
 
 
 def _embed_via_lm_studio(

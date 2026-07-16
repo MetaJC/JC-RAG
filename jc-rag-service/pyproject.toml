@@ -1,7 +1,7 @@
 [project]
-name = "jc-rag-python"
-version = "0.0.1-SNAPSHOT"
-description = "JC RAG 开源版 Python 后端 (知识库解析 / 检索 / 嵌入 / LLM 路由)"
+name = "jc-rag-community"
+version = "0.0.1.dev0"
+description = "JC RAG 社区版 Python Service. RAG 业务实现 (FastAPI). 可作为 wheel 被商业版 in-process 集成, 也可独立运行 (uvicorn app.main:app)."
 requires-python = ">=3.10"
 dependencies = [
     "fastapi==0.115.6",

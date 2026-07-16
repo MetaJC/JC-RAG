@@ -21,4 +21,7 @@ router.include_router(memory.router)
 router.include_router(profile.router)
 router.include_router(config.router)
 
+# Health is registered by the standalone Community application only. A host
+# application (such as Pro) owns its own service identity and /health contract.
+
 __all__ = ["router"]
