@@ -10,13 +10,14 @@ import platform
 from typing import Any
 
 from app.embeddings import embed_texts
+from app.vector_store.filter_expr import FilterExpr
 
 
-def _build_kb_filter(kb_id: int | str | None) -> dict[str, Any] | None:
-    """构建知识库过滤条件"""
+def _build_kb_filter(kb_id: int | str | None) -> FilterExpr | None:
+    """构建知识库过滤条件 - 返回后端无关的 FilterExpr."""
     if kb_id is None:
         return None
-    return {"term": {"kb_id": str(kb_id)}}
+    return FilterExpr.eq("kb_id", str(kb_id))
 
 
 def _extract_embedding_override(payload: Any) -> dict[str, Any] | None:

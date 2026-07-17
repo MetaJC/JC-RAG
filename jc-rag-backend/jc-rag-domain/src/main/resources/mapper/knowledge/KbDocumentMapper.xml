@@ -27,7 +27,15 @@
     </resultMap>
 
     <select id="selectFileInfo" resultType="java.util.LinkedHashMap">
-        SELECT id, file_name, file_ext, content_type, minio_bucket, minio_object_name
+        SELECT id,
+               kb_id AS kbId,
+               file_name AS fileName,
+               file_ext AS fileExt,
+               file_size AS fileSize,
+               content_type AS contentType,
+               minio_bucket AS minioBucket,
+               minio_object_name AS minioObjectName,
+               uploaded_at AS uploadedAt
         FROM kb_document
         WHERE id = #{id} AND deleted = 0
     </select>

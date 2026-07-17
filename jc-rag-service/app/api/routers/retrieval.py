@@ -20,7 +20,7 @@ from app.api.schemas import RetrievalTestRequest
 from app.core.config import get_settings
 from app.embeddings import get_embedding_status
 from app.llm.provider_factory import ProviderFactory
-from app.utils import text_search, vector_search
+from app.vector_store import get_vector_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -61,14 +61,21 @@ async def retrieval_test(request: RetrievalTestRequest) -> dict:
     vector_error: str | None = None
 
     try:
-        vector_hits = vector_search(query_vector, kb_filter, top_k, top_n)
+        vs = get_vector_store()
+        vector_hits = vs.vector_search(
+            query_vector,
+            filter=kb_filter,
+            top_k=top_k,
+            top_n=top_n,
+        )
     except Exception as ex:
         vector_error = str(ex)
 
     text_hits: list[dict[str, Any]] = []
     try:
+        vs = get_vector_store()
         question_ws = _to_ws_tokens(str(question))
-        text_hits = text_search(question_ws, kb_filter, top_k)
+        text_hits = vs.text_search(question_ws, filter=kb_filter, top_k=top_k)
     except Exception:
         text_hits = []
 

@@ -7,7 +7,8 @@ from typing import Any, Dict, List, Optional
 from app.core.config import get_settings
 from app.embeddings import embed_texts
 from app.llm.provider_factory import ProviderFactory
-from app.utils import vector_search
+from app.vector_store import FilterExpr
+from app.vector_store import get_vector_store
 
 from .agent_base import ToolUsingAgent, AgentFactory
 
@@ -35,8 +36,13 @@ class RagAgent(ToolUsingAgent):
             return "无法生成查询向量"
         
         # 2. 向量检索
-        kb_filter = {"term": {"kb_id": str(kb_id)}} if kb_id else None
-        hits = vector_search(query_vector, kb_filter, top_k=settings.retrieval.top_k)
+        kb_filter = FilterExpr.eq("kb_id", str(kb_id)) if kb_id else None
+        vs = get_vector_store()
+        hits = vs.vector_search(
+            query_vector,
+            filter=kb_filter,
+            top_k=settings.retrieval.top_k,
+        )
         
         if not hits:
             # 没有检索到结果，直接调用大模型

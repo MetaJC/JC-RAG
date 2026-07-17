@@ -35,6 +35,19 @@ elasticsearch:
   index_name: jc_rag_chunks
   memory_index_name: jc_chat_memory   # L2 长期事实向量索引 (独立于 KAG 索引, 避免污染检索)
 
+# 向量库抽象 (后端切换改 backend 即可, 业务代码无感知)
+vector_store:
+  backend: milvus  # elasticsearch | milvus
+  elasticsearch:
+    url: http://127.0.0.1:9200
+    default_index: jc_rag_chunks
+  milvus:
+    host: 127.0.0.1
+    port: 19530
+    user: root
+    password: Milvus
+    default_collection: jc_rag_chunks_community
+
 memory:
   enabled: true                       # L2 总开关 (可在偏好设置中关闭)
   extract_top_k: 5                    # 每轮 LLM 最多提取条数

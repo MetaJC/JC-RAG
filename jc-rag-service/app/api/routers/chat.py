@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter
@@ -24,11 +25,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _build_text_queries(question: str) -> list[str]:
+    text = (question or "").strip()
+    if not text:
+        return []
+    queries: list[str] = [text]
+    parts = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9_]{2,}", text)
+    stop_words = {"世界上", "什么", "怎么", "如何", "为何", "为啥", "谁", "多少", "是否", "可以", "请问"}
+    keywords = [part for part in parts if part not in stop_words]
+    if keywords:
+        keyword_query = " ".join(dict.fromkeys(keywords))
+        if keyword_query not in queries:
+            queries.append(keyword_query)
+    return queries
+
+
 @router.post("/chat/ask/stream")
 async def chat_ask_stream(request: ChatAskRequest):
     """SSE 流式问答：检索 → 拼 prompt → 流式生成（支持短期记忆 history）"""
     from app.llm.provider_factory import ProviderFactory
-    from app.utils import text_search, vector_search
+    from app.vector_store import get_vector_store
 
     settings = get_settings()
     payload = request.model_dump(exclude_none=True)
@@ -68,7 +84,27 @@ async def chat_ask_stream(request: ChatAskRequest):
             references: list[dict] = []
             if kb_id is not None:
                 try:
-                    vec_hits = vector_search(query_vector, kb_filter, top_k, top_n)
+                    vs = get_vector_store()
+                    vec_hits = vs.vector_search(
+                        query_vector,
+                        filter=kb_filter,
+                        top_k=top_k,
+                        top_n=top_n,
+                    )
+                    # [DIAG] 排查 AI 不基于知识库: 打印 kbId / 命中数 / 命中 chunk_text 前 60 字
+                    logger.warning(
+                        "[DIAG_RETRIEVE] kb_id=%s hits=%d filter=%s top_k=%d",
+                        kb_id, len(vec_hits),
+                        kb_filter.to_milvus() if kb_filter else None,
+                        top_k,
+                    )
+                    for h in vec_hits[:3]:
+                        src = h.get("_source") or {}
+                        logger.warning(
+                            "[DIAG_HIT] chunk_id=%s score=%s text=%r",
+                            src.get("chunk_id"), h.get("_score"),
+                            str(src.get("chunk_text") or "")[:60],
+                        )
                     for h in vec_hits:
                         src = h.get("_source") or {}
                         text = str(src.get("chunk_text") or "").strip()
@@ -83,19 +119,23 @@ async def chat_ask_stream(request: ChatAskRequest):
                             })
                     if not vec_hits:
                         try:
-                            text_hits = text_search(question, kb_filter, top_k)
-                            for h in text_hits:
-                                src = h.get("_source") or {}
-                                text = str(src.get("chunk_text") or "").strip()
-                                if text and text not in context_lines:
-                                    context_lines.append(text)
-                                    references.append({
-                                        "chunkId": src.get("chunk_id"),
-                                        "documentId": src.get("document_id"),
-                                        "fileName": src.get("file_name"),
-                                        "score": h.get("_score"),
-                                        "excerpt": text[:160],
-                                    })
+                            vs = get_vector_store()
+                            for text_query in _build_text_queries(question):
+                                text_hits = vs.text_search(text_query, filter=kb_filter, top_k=top_k)
+                                for h in text_hits:
+                                    src = h.get("_source") or {}
+                                    text = str(src.get("chunk_text") or "").strip()
+                                    if text and text not in context_lines:
+                                        context_lines.append(text)
+                                        references.append({
+                                            "chunkId": src.get("chunk_id"),
+                                            "documentId": src.get("document_id"),
+                                            "fileName": src.get("file_name"),
+                                            "score": h.get("_score"),
+                                            "excerpt": text[:160],
+                                        })
+                                if context_lines:
+                                    break
                         except Exception:
                             pass
                 except Exception as ex:
@@ -107,8 +147,9 @@ async def chat_ask_stream(request: ChatAskRequest):
             if context_lines:
                 ctx_text = "\n\n".join(context_lines[:top_k])
                 rag_prompt = (
-                    f"以下是知识库中可能与问题相关的内容片段，请基于这些内容并结合你的知识回答。"
-                    f"如果内容与问题无关，直接回答用户问题即可。\n\n"
+                    f"以下是知识库中检索到的参考内容。只要参考内容能够回答问题，就必须以参考内容为准，"
+                    f"不要用你自己的常识去改写、纠正或覆盖参考内容。"
+                    f"只有在参考内容明确不足以回答问题时，才可以说明知识库未提供答案。\n\n"
                     f"参考内容：\n{ctx_text}\n\n"
                     f"用户问题：{question}"
                 )
@@ -189,7 +230,7 @@ async def chat_ask_stream(request: ChatAskRequest):
 async def chat_ask(request: ChatAskRequest) -> dict:
     """同步问答（被 Java UserChatServiceImpl.callPythonAsk 调用）"""
     from app.llm.provider_factory import ProviderFactory
-    from app.utils import text_search, vector_search
+    from app.vector_store import get_vector_store
 
     settings = get_settings()
     payload = request.model_dump(exclude_none=True)
@@ -215,7 +256,13 @@ async def chat_ask(request: ChatAskRequest) -> dict:
     references: list[dict] = []
     if kb_id is not None:
         try:
-            vec_hits = vector_search(query_vector, kb_filter, top_k, top_n)
+            vs = get_vector_store()
+            vec_hits = vs.vector_search(
+                query_vector,
+                filter=kb_filter,
+                top_k=top_k,
+                top_n=top_n,
+            )
             for h in vec_hits:
                 src = h.get("_source") or {}
                 text = str(src.get("chunk_text") or "").strip()
@@ -230,19 +277,23 @@ async def chat_ask(request: ChatAskRequest) -> dict:
                     })
             if not vec_hits:
                 try:
-                    text_hits = text_search(question, kb_filter, top_k)
-                    for h in text_hits:
-                        src = h.get("_source") or {}
-                        text = str(src.get("chunk_text") or "").strip()
-                        if text and text not in context_lines:
-                            context_lines.append(text)
-                            references.append({
-                                "chunkId": src.get("chunk_id"),
-                                "documentId": src.get("document_id"),
-                                "fileName": src.get("file_name"),
-                                "score": h.get("_score"),
-                                "excerpt": text[:160],
-                            })
+                    vs = get_vector_store()
+                    for text_query in _build_text_queries(question):
+                        text_hits = vs.text_search(text_query, filter=kb_filter, top_k=top_k)
+                        for h in text_hits:
+                            src = h.get("_source") or {}
+                            text = str(src.get("chunk_text") or "").strip()
+                            if text and text not in context_lines:
+                                context_lines.append(text)
+                                references.append({
+                                    "chunkId": src.get("chunk_id"),
+                                    "documentId": src.get("document_id"),
+                                    "fileName": src.get("file_name"),
+                                    "score": h.get("_score"),
+                                    "excerpt": text[:160],
+                                })
+                        if context_lines:
+                            break
                 except Exception:
                     pass
         except Exception as ex:
@@ -252,8 +303,9 @@ async def chat_ask(request: ChatAskRequest) -> dict:
     if context_lines:
         ctx_text = "\n\n".join(context_lines[:top_k])
         rag_prompt = (
-            f"以下是知识库中可能与问题相关的内容片段，请基于这些内容并结合你的知识回答。"
-            f"如果内容与问题无关，直接回答用户问题即可。\n\n"
+            f"以下是知识库中检索到的参考内容。只要参考内容能够回答问题，就必须以参考内容为准，"
+            f"不要用你自己的常识去改写、纠正或覆盖参考内容。"
+            f"只有在参考内容明确不足以回答问题时，才可以说明知识库未提供答案。\n\n"
             f"参考内容：\n{ctx_text}\n\n"
             f"用户问题：{question}"
         )

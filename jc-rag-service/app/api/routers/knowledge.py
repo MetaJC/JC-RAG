@@ -15,12 +15,9 @@ from fastapi import APIRouter
 
 from app.api.schemas import KnowledgeDeleteRequest, KnowledgeParseRequest
 from app.loaders import DocumentLoaderFactory
-from app.utils import (
-    bulk_index_documents,
-    delete_by_document_id,
-    download_object_to_temp_file,
-    split_text,
-)
+from app.utils import download_object_to_temp_file, split_text
+from app.vector_store import get_vector_store
+from app.vector_store.filter_expr import FilterExpr
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,12 +42,18 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
         update_stage,
     )
     from app.embeddings import _resolve_device, embed_texts
+    from app.vector_store import get_vector_store as _get_vs
 
     settings = get_settings()
     start_time = time.time()
     doc_id = int(request.documentId) if request.documentId else 0
     file_ext = (request.fileExt or "txt").strip().lower()
     kb_id = str(request.kbId)
+    # [DIAG] 排查 kbId 传递: 打印 Java 端实际下发的 kbId / documentId
+    logger.warning(
+        "[DIAG_PARSE] doc_id=%s kb_id=%s fileName=%s request_kbId=%r request_docId=%r",
+        doc_id, kb_id, request.fileName, request.kbId, request.documentId,
+    )
 
     stage_ids = get_stage_ids(file_ext)
     init_progress(doc_id, request.fileName or "", file_ext, stage_ids)
@@ -91,10 +94,12 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                 used_device = embedding_override["device"]
                 device_info = f"手动指定: {used_device}"
 
-        update_stage(doc_id, "download", "running", 10, "正在初始化 ES 索引...", "")
+        update_stage(doc_id, "download", "running", 10, "正在初始化向量索引...", "")
         _check_cancel()
-        from app.utils import ensure_index
-        ensure_index()
+        vs = _get_vs()
+        from app.embeddings import get_embedding_dimension
+        dims = get_embedding_dimension(settings)
+        vs.ensure_collection(vs.default_collection, dims)
         update_stage(doc_id, "download", "running", 25,
                      f"正在从 MinIO 下载文档: {request.fileName}...", "")
         _check_cancel()
@@ -222,7 +227,7 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
             for i, (chunk_text, vec) in enumerate(zip(batch, vecs)):
                 pending_docs.append({
-                    "chunk_id": f"{doc_id}_{batch_idx + i}",
+                    "chunk_id": f"{kb_id}_{doc_id}_{batch_idx + i}",
                     "document_id": str(doc_id),
                     "kb_id": kb_id,
                     "file_name": request.fileName,
@@ -244,18 +249,18 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
             if len(pending_docs) >= es_batch or emb_done >= total_chunks:
                 _check_cancel()
-                s, f = bulk_index_documents(pending_docs)
+                s, f = vs.bulk_index(pending_docs)
                 success_total += s
                 failed_total += f
                 idx_pct = min(99, int(success_total / total_chunks * 100))
                 update_stage(doc_id, "es_index", "running", idx_pct,
-                             f"写入 ES 索引中... 已写入 {success_total}/{total_chunks} 条",
+                             f"写入向量索引中... 已写入 {success_total}/{total_chunks} 条",
                              "")
                 pending_docs = []
 
         if pending_docs:
             _check_cancel()
-            s, f = bulk_index_documents(pending_docs)
+            s, f = vs.bulk_index(pending_docs)
             success_total += s
             failed_total += f
 
@@ -281,14 +286,14 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                 "message": f"索引完成，{success_total}个块已写入向量库（耗时{cost}秒）",}
 
     except CancelParseException:
-        logger.warning("knowledge_parse cancelled: doc=%s, rolling back ES index", doc_id)
+        logger.warning("knowledge_parse cancelled: doc=%s, rolling back vector index", doc_id)
         try:
-            delete_by_document_id(str(doc_id))
-            logger.info("ES rollback for cancelled doc=%s OK", doc_id)
+            vs.delete_by_document_id(str(doc_id))
+            logger.info("Vector index rollback for cancelled doc=%s OK", doc_id)
         except Exception as rollback_err:
-            logger.error("ES rollback failed for doc=%s: %s", doc_id, rollback_err)
-        complete_progress(doc_id, False, "任务已被用户终止，ES 索引已回滚")
-        return {"chunkCount": 0, "pageCount": 0, "message": {"phase": "cancelled", "msg": "任务已被终止，ES 数据已清理"}}
+            logger.error("Vector index rollback failed for doc=%s: %s", doc_id, rollback_err)
+        complete_progress(doc_id, False, "任务已被用户终止，向量索引已回滚")
+        return {"chunkCount": 0, "pageCount": 0, "message": {"phase": "cancelled", "msg": "任务已被终止，向量数据已清理"}}
     except Exception as ex:
         logger.error("knowledge_parse failed: doc=%s err=%s", doc_id, str(ex))
         complete_progress(doc_id, False, f"解析失败: {str(ex)}")
@@ -297,19 +302,14 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
 @router.post("/knowledge/delete")
 async def knowledge_delete(request: KnowledgeDeleteRequest) -> dict:
-    """清理知识库/文档的 ES 索引数据"""
+    """清理知识库/文档的向量索引数据"""
     try:
+        vs = get_vector_store()
         if request.documentId:
-            delete_by_document_id(str(request.documentId))
+            vs.delete_by_document_id(str(request.documentId))
         elif request.kbId:
-            from app.utils.es_client import get_es_client
-            from app.core.config import get_settings
-            settings = get_settings()
-            client = get_es_client()
-            client.delete_by_query(
-                index=settings.elasticsearch.index_name,
-                body={"query": {"term": {"kb_id": str(request.kbId)}}},
-            )
+            deleted = vs.delete_by_filter(FilterExpr.eq("kb_id", str(request.kbId)))
+            logger.info("kb_id=%s 清理向量索引 %d 条", request.kbId, deleted)
         return {"status": "SUCCESS", "message": "索引数据已清理"}
     except Exception as ex:
         logger.error("knowledge_delete failed: %s", str(ex))

@@ -1026,8 +1026,12 @@ public class KnowledgeBaseServiceImpl
         if (row == null || row.isEmpty()) {
             throw new ResourceNotFoundException("doc.not.found", documentId);
         }
-        String bucket = String.valueOf(row.get("minioBucket"));
-        String objectName = String.valueOf(row.get("minioObjectName"));
+        String bucket = readString(row, "minioBucket", "minio_bucket");
+        String objectName = readString(row, "minioObjectName", "minio_object_name");
+        if (bucket == null || bucket.isBlank() || objectName == null || objectName.isBlank()) {
+            log.warn("Document {} missing MinIO info: row={}", documentId, row);
+            throw new DataConflictException("kb.download.minio.failed");
+        }
         java.io.InputStream stream;
         try {
             stream = minioClient.getObject(
@@ -1045,6 +1049,23 @@ public class KnowledgeBaseServiceImpl
         vo.setFileSize(asLong(fileSize));
         vo.setUploadedAt(asDateTime(row.get("uploadedAt")));
         return vo;
+    }
+
+    private String readString(Map<String, Object> row, String... keys) {
+        if (row == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            Object value = row.get(key);
+            if (value == null) {
+                continue;
+            }
+            String text = String.valueOf(value).trim();
+            if (!text.isEmpty() && !"null".equalsIgnoreCase(text)) {
+                return text;
+            }
+        }
+        return null;
     }
 
     /**

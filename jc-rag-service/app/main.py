@@ -29,6 +29,13 @@ async def initialize_community() -> None:
     """Initialize Community resources for a Community or Pro host process."""
     _log = logging.getLogger("rag-service")
     try:
+        from app.vector_store import get_vector_store
+
+        vs = get_vector_store()
+        _log.info("Vector store backend=%s, collection=%s", vs.backend_name(), vs.default_collection)
+    except Exception as e:
+        _log.warning("Vector store init check failed: %s", e)
+    try:
         from app.utils.ocr_utils import get_ocr_engine
         get_ocr_engine()
         _log.info("OCR 引擎预初始化完成")

@@ -16,6 +16,7 @@ public class SystemResourceVO implements Serializable {
 
     private Map<String, Object> cpu;
     private List<Map<String, Object>> gpus;
+    @com.fasterxml.jackson.annotation.JsonProperty("ram")
     private Map<String, Object> memory;
     private Map<String, Object> disk;
 

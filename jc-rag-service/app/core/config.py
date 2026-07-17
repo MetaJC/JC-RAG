@@ -53,6 +53,28 @@ class ElasticsearchConfig(BaseModel):
     memory_index_name: str = "jc_chat_memory"  # L2 长期事实索引
 
 
+class ElasticsearchBackendConfig(BaseModel):
+    """ES 后端配置 (vector_store.elasticsearch 段)"""
+    url: str = "http://127.0.0.1:9200"
+    default_index: str = "jc_rag_chunks"
+
+
+class MilvusBackendConfig(BaseModel):
+    """Milvus 后端配置 (vector_store.milvus 段)"""
+    host: str = "127.0.0.1"
+    port: int = 19530
+    user: str = "root"
+    password: str = "Milvus"
+    default_collection: str = "jc_rag_chunks"
+
+
+class VectorStoreConfig(BaseModel):
+    """向量库总配置 - 通过 backend 字段切换后端, 业务代码无感知."""
+    backend: str = "elasticsearch"  # elasticsearch | milvus
+    elasticsearch: ElasticsearchBackendConfig = ElasticsearchBackendConfig()
+    milvus: MilvusBackendConfig = MilvusBackendConfig()
+
+
 class ProfileConfig(BaseModel):
     """L3 跨会话画像配置 (由 L2 长期事实聚合并经 LLM 提炼)"""
     enabled: bool = True
@@ -140,6 +162,7 @@ class Settings(BaseModel):
     providers: ProvidersConfig
     services: ServicesConfig
     storage: StorageConfig
+    vector_store: VectorStoreConfig = VectorStoreConfig()
 
 
 def _load_yaml_config() -> dict[str, Any]:

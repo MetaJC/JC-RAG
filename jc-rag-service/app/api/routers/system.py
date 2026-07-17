@@ -224,11 +224,12 @@ async def system_cancel_parse(body: dict[str, Any] = Body(...)) -> dict[str, Any
     from app.core.parse_progress import cancel_task
     doc_id = int(body.get("documentId", 0))
     if cancel_task(doc_id):
-        from app.utils import delete_by_document_id
         try:
-            delete_by_document_id(str(doc_id))
-            logger.info("Cancel: ES data deleted for doc=%s", doc_id)
+            from app.vector_store import get_vector_store
+            vs = get_vector_store()
+            vs.delete_by_document_id(str(doc_id))
+            logger.info("Cancel: vector store data deleted for doc=%s (backend=%s)", doc_id, vs.backend_name())
         except Exception as e:
-            logger.warning("Cancel: ES delete failed for doc=%s: %s", doc_id, e)
-        return {"status": "SUCCESS", "message": f"文档 {doc_id} 已终止，ES 索引已回滚"}
+            logger.warning("Cancel: vector store delete failed for doc=%s: %s", doc_id, e)
+        return {"status": "SUCCESS", "message": f"文档 {doc_id} 已终止，向量索引已回滚"}
     return {"status": "FAILED", "message": "任务未在处理中或已完成"}
