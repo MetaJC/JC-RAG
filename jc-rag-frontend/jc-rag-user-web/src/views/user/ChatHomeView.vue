@@ -79,11 +79,13 @@ function lsSet(key: string, val: string) { try { localStorage.setItem(key, val) 
 function lsRemove(key: string) { try { localStorage.removeItem(key) } catch {} }
 
 function restoreFromCache() {
-  const cachedKbId = lsGet(LS_KB_ID)
-  if (cachedKbId !== null) {
-    const id = Number(cachedKbId)
-    if (knowledgeBases.value.some(kb => kb.id === id)) {
-      selectedKnowledgeBaseId.value = id
+  if (kbSelectConfig.value?.mode !== 'FIXED') {
+    const cachedKbId = lsGet(LS_KB_ID)
+    if (cachedKbId !== null) {
+      const id = Number(cachedKbId)
+      if (knowledgeBases.value.some(kb => kb.id === id)) {
+        selectedKnowledgeBaseId.value = id
+      }
     }
   }
   const cachedAgentId = lsGet(LS_AGENT_ID)
@@ -545,6 +547,10 @@ onMounted(async () => {
       throw e
     }
     restoreFromCache()
+    if (kbSelectConfig.value?.mode === 'FIXED') {
+      selectedKnowledgeBaseId.value = kbSelectConfig.value?.defaultKb?.id ?? null
+      lsRemove(LS_KB_ID)
+    }
     // C 端可选 KB: 优先用后端配置 (config.options), 兼容旧接口
     if (!selectedKnowledgeBaseId.value) {
       const cfgOptions = kbSelectConfig.value?.options?.length
@@ -590,6 +596,10 @@ onActivated(async () => {
       try { await loadBuiltinAgents() } catch (e) { console.warn('[ChatHome] onActivated loadBuiltinAgents failed:', e) }
       await syncSessions(null, true)
       restoreFromCache()
+      if (kbSelectConfig.value?.mode === 'FIXED') {
+        selectedKnowledgeBaseId.value = kbSelectConfig.value?.defaultKb?.id ?? null
+        lsRemove(LS_KB_ID)
+      }
       // 重新选 KB / session
       if (!selectedKnowledgeBaseId.value) {
         const cfgOptions = kbSelectConfig.value?.options?.length ? kbSelectConfig.value.options : knowledgeBases.value
@@ -628,7 +638,9 @@ async function selectSession(id: number) {
   }
   selectedSessionId.value = id
   const session = sessions.value.find(s => s.id === id)
-  if (session?.kbId && selectedKnowledgeBaseId.value == null) {
+  if (kbSelectConfig.value?.mode === 'FIXED') {
+    selectedKnowledgeBaseId.value = kbSelectConfig.value?.defaultKb?.id ?? selectedKnowledgeBaseId.value
+  } else if (session?.kbId) {
     selectedKnowledgeBaseId.value = session.kbId
   }
   const loaded = await userApi.getMessages(id)

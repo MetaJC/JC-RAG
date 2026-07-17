@@ -713,7 +713,7 @@ public class UserChatServiceImpl implements UserChatService {
                                              List<Map<String, Object>> attachments) {
         Map<String, Object> p = new LinkedHashMap<>();
         ChatSessionEntity s = sessionMapper.selectById(sessionId);
-        Long resolvedKbId = overrideKbId != null ? overrideKbId : (s != null ? s.getKbId() : null);
+        Long resolvedKbId = resolveEffectiveKbId(s, overrideKbId);
         p.put("kbId", resolvedKbId);
         log.info("buildPayload: resolvedKbId={}, overrideKbId={}, sessionKbId={}", resolvedKbId, overrideKbId, s != null ? s.getKbId() : null);
         p.put("question", question);
@@ -1580,6 +1580,22 @@ public class UserChatServiceImpl implements UserChatService {
             if (id != null) return id;
         } catch (Exception ignored) {}
         return null;
+    }
+
+    /**
+     * 解析本次问答真正生效的 KB。
+     * <p>FIXED 模式下强制使用系统默认 KB，避免历史会话残留的 kb_id 把请求带回旧知识库。
+     * <p>SELECTABLE / EMPTY 模式下保留原语义：前端显式 override 优先，否则沿用会话绑定 KB。
+     */
+    private Long resolveEffectiveKbId(ChatSessionEntity session, Long overrideKbId) {
+        KbSelectConfigVO cfg = getKbSelectConfig();
+        if ("FIXED".equals(cfg.getMode())) {
+            return cfg.getDefaultKb() == null ? null : cfg.getDefaultKb().getId();
+        }
+        if (overrideKbId != null) {
+            return overrideKbId;
+        }
+        return session != null ? session.getKbId() : null;
     }
 
     /**
