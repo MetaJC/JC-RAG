@@ -1304,7 +1304,7 @@ const latestLogByDoc = computed(() => {
         <el-form-item>
           <template #label>
             <span>可见范围
-              <el-tooltip placement="top">
+              <el-tooltip placement="top" :teleported="true" popper-class="kb-dialog-tooltip-popper">
                 <template #content>
                   <div style="line-height: 1.6">
                     <div>● <b>私有</b>: 知识库所有者, 拥有知识库的所有权限</div>
@@ -1325,7 +1325,7 @@ const latestLogByDoc = computed(() => {
         <el-form-item v-if="canConfigDefaultKb && editingKbId && currentKnowledgeBase && currentKnowledgeBase.id === editingKbId">
           <template #label>
             <span>设为默认知识库
-              <el-tooltip content="所有客户端用户将以当前知识库作为默认知识库, 默认知识库必须为公开可见范围" placement="top">
+              <el-tooltip content="所有客户端用户将以当前知识库作为默认知识库, 默认知识库必须为公开可见范围" placement="top" :teleported="true" popper-class="kb-dialog-tooltip-popper">
                 <el-icon style="cursor: help; color: #909399; margin-left: 2px"><QuestionFilled /></el-icon>
               </el-tooltip>
             </span>
@@ -2150,5 +2150,9 @@ const latestLogByDoc = computed(() => {
 <style>
 .kb-item-popper {
   z-index: 3000 !important;
+}
+
+.kb-dialog-tooltip-popper {
+  z-index: 4000 !important;
 }
 </style>
