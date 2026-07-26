@@ -6,6 +6,9 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 /**
  * 系统首次启动数据初始化。
  * 创建 developer 兜底账号、admin 超级管理员账号、默认角色/权限、演示配置、系统提示词。
@@ -25,6 +28,7 @@ public class SystemDataInitializer implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         try {
+            initializeLocalWorkspace();
             normalizeBuiltinUsersAndRoles();
             initRuntimeConfigs();
             String applied = jdbcTemplate.query(
@@ -50,6 +54,22 @@ public class SystemDataInitializer implements ApplicationRunner {
             System.out.println("[SystemDataInitializer] 系统初始化完成");
         } catch (Exception e) {
             System.out.println("[SystemDataInitializer] 初始化跳过（数据库可能尚未就绪）: " + e.getMessage());
+        }
+    }
+
+    private void initializeLocalWorkspace() {
+        try {
+            Path home = Path.of(RuntimeConfigDefaults.JC_RAG_HOME);
+            for (String directory : new String[] {
+                "config", "models", "models/embedding", "models/reranker", "models/vision",
+                "models/image-generation", "models/speech-to-text", "models/text-to-speech",
+                "data", "logs", "tmp"
+            }) {
+                Files.createDirectories(home.resolve(directory));
+            }
+            System.out.println("[JC RAG] Local workspace: " + home);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to initialize JC RAG local workspace", ex);
         }
     }
 

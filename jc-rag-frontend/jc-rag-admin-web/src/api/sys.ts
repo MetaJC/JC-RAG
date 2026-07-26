@@ -162,6 +162,63 @@ export async function browseDirectory(dirPath?: string) {
   return data
 }
 
+export interface ModelProviderConfig {
+  id: number
+  providerType: string
+  providerName: string
+  endpoint: string
+  modelName: string
+  enabled: number | boolean
+  priorityNo: number
+  apiKeyConfigured: boolean
+}
+
+export async function fetchModelProviders(): Promise<ModelProviderConfig[]> {
+  const { data } = await request.get('/model/providers')
+  return (data?.data ?? data) as ModelProviderConfig[]
+}
+
+export async function saveModelProvider(payload: Omit<ModelProviderConfig, 'id' | 'apiKeyConfigured'> & { id?: number; apiKey?: string }) {
+  const { data } = await request.post('/model/providers', payload)
+  return (data?.data ?? data) as ModelProviderConfig
+}
+
+export async function refreshProviderModels(id: number): Promise<string[]> {
+  const { data } = await request.post(`/model/providers/${id}/models/refresh`)
+  return (data?.data ?? data) as string[]
+}
+
+export async function testModelProvider(payload: { id?: number; providerName: string; providerType: string; endpoint: string; apiKey?: string }) {
+  const { data } = await request.post('/model/providers/test', payload)
+  return (data?.data ?? data) as { success: boolean; message: string }
+}
+
+export interface LocalModelItem {
+  id: string
+  name: string
+  repoId: string
+  path: string
+  installed: boolean
+  status: 'idle' | 'queued' | 'downloading' | 'completed' | 'failed'
+  progress: number
+  message: string
+}
+
+export async function fetchLocalModels(): Promise<LocalModelItem[]> {
+  const { data } = await request.get('/sys/local-models')
+  return (data?.data ?? data) as LocalModelItem[]
+}
+
+export async function downloadLocalModel(modelId: string) {
+  const { data } = await request.post('/sys/local-models/download', { modelId })
+  return data?.data ?? data
+}
+
+export async function activateModelProvider(id: number) {
+  const { data } = await request.post(`/model/providers/${id}/activate`)
+  return data
+}
+
 /* ============== Demo 模式 / 角色配额 ============== */
 
 export async function fetchDemoConfig() {

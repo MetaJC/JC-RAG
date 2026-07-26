@@ -14,5 +14,5 @@ export const appDefaults = {
   elasticsearchUrl: import.meta.env.VITE_ELASTICSEARCH_URL ?? 'http://localhost:9200',
   minioUrl: import.meta.env.VITE_MINIO_URL ?? 'http://localhost:9000',
   embeddingModelPath:
-    import.meta.env.VITE_DEFAULT_EMBEDDING_MODEL_PATH ?? 'D:\\models\\embedding\\bge-large-zh-v1.5',
+    import.meta.env.VITE_DEFAULT_EMBEDDING_MODEL_PATH ?? '.jc-rag/models/embedding/bge-m3',
 } as const

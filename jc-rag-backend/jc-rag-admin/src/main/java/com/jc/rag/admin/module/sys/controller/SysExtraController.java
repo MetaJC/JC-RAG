@@ -66,6 +66,14 @@ public class SysExtraController {
         return R.ok(runtimeConfigService.browseDirectory(param == null ? null : param.getPath()));
     }
 
+    @GetMapping("/local-models")
+    public R<List<Map<String, Object>>> localModels() { return R.ok(runtimeConfigService.listLocalModels()); }
+
+    @PostMapping("/local-models/download")
+    public R<Map<String, Object>> downloadLocalModel(@RequestBody Map<String, Object> body) {
+        return R.ok(runtimeConfigService.downloadLocalModel(String.valueOf(body.getOrDefault("modelId", ""))));
+    }
+
     /** 兼容旧前端: /api/system/devices (旧 sysConfig 页降级方案)。 */
     @Deprecated
     @GetMapping("/_legacy/devices")

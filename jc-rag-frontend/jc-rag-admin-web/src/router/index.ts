@@ -31,6 +31,11 @@ import RbacPositionView from '../views/RbacPositionView.vue'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
 import SystemSettingsView from '../views/SystemSettingsView.vue'
+import ModelDashboardView from '../views/ModelDashboardView.vue'
+import ModelProviderConfigView from '../views/ModelProviderConfigView.vue'
+import ModelSettingsView from '../views/ModelSettingsView.vue'
+import ModelParameterSettingsView from '../views/ModelParameterSettingsView.vue'
+import DeveloperOptionsView from '../views/DeveloperOptionsView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -55,8 +60,32 @@ const router = createRouter({
       children: [
         {
           path: '/system/settings',
-          name: 'system-settings',
-          component: SystemSettingsView,
+          redirect: '/models/dashboard',
+        },
+        {
+          path: '/models/dashboard',
+          name: 'model-dashboard',
+          component: ModelDashboardView,
+        },
+        {
+          path: '/models/providers',
+          name: 'model-providers',
+          component: ModelProviderConfigView,
+        },
+        {
+          path: '/models/settings',
+          name: 'model-settings',
+          component: ModelSettingsView,
+        },
+        {
+          path: '/models/parameters',
+          name: 'model-parameters',
+          component: ModelParameterSettingsView,
+        },
+        {
+          path: '/system/developer-options',
+          name: 'developer-options',
+          component: DeveloperOptionsView,
         },
         {
           path: '/knowledge/base',

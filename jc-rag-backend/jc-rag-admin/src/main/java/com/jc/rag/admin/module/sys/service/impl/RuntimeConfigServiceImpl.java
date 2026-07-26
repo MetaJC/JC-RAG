@@ -355,6 +355,44 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
         return result;
     }
 
+    @Override
+    public List<Map<String, Object>> listLocalModels() {
+        String baseUrl = resolveString(loadDynamicConfig(), "service.python.rag.baseUrl",
+            externalServiceProperties.getPython().getRag().getBaseUrl());
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(normalizeBaseUrl(baseUrl) + "/system/local-models"))
+                .timeout(Duration.ofSeconds(5)).GET().build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 200) {
+                return objectMapper.readValue(response.body(), new TypeReference<List<Map<String, Object>>>() {});
+            }
+        } catch (Exception ex) {
+            log.warn("listLocalModels failed: {}", ex.getMessage());
+        }
+        return List.of();
+    }
+
+    @Override
+    public Map<String, Object> downloadLocalModel(String modelId) {
+        String baseUrl = resolveString(loadDynamicConfig(), "service.python.rag.baseUrl",
+            externalServiceProperties.getPython().getRag().getBaseUrl());
+        try {
+            String body = objectMapper.writeValueAsString(Map.of("modelId", modelId));
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(normalizeBaseUrl(baseUrl) + "/system/local-models/download"))
+                .timeout(Duration.ofSeconds(5)).header("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 200) {
+                return objectMapper.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
+            }
+        } catch (Exception ex) {
+            log.warn("downloadLocalModel failed: {}", ex.getMessage());
+        }
+        return Map.of("success", false, "message", "Python RAG 服务不可用");
+    }
+
     /* ============= 私有构造方法 ============= */
     private Map<String, Object> buildAppConfig() {
         Map<String, Object> map = new LinkedHashMap<>();

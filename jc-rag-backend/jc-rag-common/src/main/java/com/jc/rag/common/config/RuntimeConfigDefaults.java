@@ -1,5 +1,7 @@
 package com.jc.rag.common.config;
 
+import java.nio.file.Path;
+
 public final class RuntimeConfigDefaults {
 
     private RuntimeConfigDefaults() {
@@ -19,7 +21,9 @@ public final class RuntimeConfigDefaults {
     public static final String ONLINE_CHAT_PATH = "/v1/chat/completions";
     public static final String ONLINE_MODEL_NAME = "gpt-4o-mini";
 
-    public static final String EMBEDDING_MODEL_PATH = "D:\\models\\embedding\\bge-large-zh-v1.5";
+    /** All locally persisted JC RAG content is rooted in the current OS user's home directory. */
+    public static final String JC_RAG_HOME = Path.of(System.getProperty("user.home"), ".jc-rag").toString();
+    public static final String EMBEDDING_MODEL_PATH = Path.of(JC_RAG_HOME, "models", "embedding", "bge-m3").toString();
     public static final String EMBEDDING_DEVICE = "auto";
     public static final int EMBEDDING_DIMS = 1024;
     public static final int EMBEDDING_BATCH_SIZE = 32;

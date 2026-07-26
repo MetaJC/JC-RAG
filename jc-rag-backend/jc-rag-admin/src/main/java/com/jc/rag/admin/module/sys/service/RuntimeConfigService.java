@@ -41,4 +41,8 @@ public interface RuntimeConfigService {
     EmbeddingVerifyVO verifyEmbeddingModel(String modelPath);
 
     DirBrowseVO browseDirectory(String path);
+
+    List<Map<String, Object>> listLocalModels();
+
+    Map<String, Object> downloadLocalModel(String modelId);
 }

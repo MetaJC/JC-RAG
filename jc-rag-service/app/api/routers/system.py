@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import logging
 import platform
+import queue
+import threading
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body
@@ -18,6 +21,102 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 router = APIRouter()
 health_router = APIRouter()
+
+_LOCAL_MODEL_CATALOG = {
+    "bge-m3": "BAAI/bge-m3",
+    "bge-large-zh-v1.5": "BAAI/bge-large-zh-v1.5",
+    "bge-base-zh-v1.5": "BAAI/bge-base-zh-v1.5",
+    "bge-small-zh-v1.5": "BAAI/bge-small-zh-v1.5",
+    "bge-large-en-v1.5": "BAAI/bge-large-en-v1.5",
+    "bge-base-en-v1.5": "BAAI/bge-base-en-v1.5",
+    "bge-small-en-v1.5": "BAAI/bge-small-en-v1.5",
+    "m3e-base": "moka-ai/m3e-base",
+    "m3e-large": "moka-ai/m3e-large",
+    "m3e-small": "moka-ai/m3e-small",
+    "text2vec-base-chinese": "shibing624/text2vec-base-chinese",
+    "text2vec-base-multilingual": "shibing624/text2vec-base-multilingual",
+    "multilingual-e5-large": "intfloat/multilingual-e5-large",
+    "e5-large-v2": "intfloat/e5-large-v2",
+    "e5-base-v2": "intfloat/e5-base-v2",
+    "e5-small-v2": "intfloat/e5-small-v2",
+    "gte-multilingual-base": "Alibaba-NLP/gte-multilingual-base",
+    "gte-large-en-v1.5": "Alibaba-NLP/gte-large-en-v1.5",
+    "paraphrase-multilingual-MiniLM-L12-v2": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    "all-MiniLM-L6-v2": "sentence-transformers/all-MiniLM-L6-v2",
+    "jina-embeddings-v3": "jinaai/jina-embeddings-v3",
+    "nomic-embed-text-v1.5": "nomic-ai/nomic-embed-text-v1.5",
+}
+_download_queue: queue.Queue[str] = queue.Queue()
+_download_status: dict[str, dict[str, Any]] = {}
+_download_lock = threading.Lock()
+_download_worker_started = False
+
+
+def _local_model_path(model_id: str) -> Path:
+    return Path.home() / ".jc-rag" / "models" / "embedding" / model_id
+
+
+def _download_worker() -> None:
+    from huggingface_hub import snapshot_download
+    while True:
+        model_id = _download_queue.get()
+        target = _local_model_path(model_id)
+        with _download_lock:
+            _download_status[model_id] = {"status": "downloading", "progress": 3, "message": "正在准备下载"}
+        stop_ticker = threading.Event()
+        def tick() -> None:
+            while not stop_ticker.wait(1.5):
+                with _download_lock:
+                    item = _download_status.get(model_id, {})
+                    if item.get("status") != "downloading": return
+                    item["progress"] = min(92, int(item.get("progress", 3)) + 2)
+                    item["message"] = "正在下载模型文件"
+        threading.Thread(target=tick, daemon=True).start()
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            snapshot_download(repo_id=_LOCAL_MODEL_CATALOG[model_id], local_dir=str(target))
+            with _download_lock:
+                _download_status[model_id] = {"status": "completed", "progress": 100, "message": "下载完成"}
+        except Exception as ex:
+            with _download_lock:
+                _download_status[model_id] = {"status": "failed", "progress": 0, "message": str(ex)}
+        finally:
+            stop_ticker.set()
+            _download_queue.task_done()
+
+
+def _ensure_download_worker() -> None:
+    global _download_worker_started
+    if not _download_worker_started:
+        _download_worker_started = True
+        threading.Thread(target=_download_worker, daemon=True, name="jc-rag-model-download").start()
+
+
+@router.get("/system/local-models")
+async def local_models() -> list[dict[str, Any]]:
+    result = []
+    for model_id, repo_id in _LOCAL_MODEL_CATALOG.items():
+        path = _local_model_path(model_id)
+        state = _download_status.get(model_id, {})
+        installed = path.exists() and any(path.iterdir())
+        result.append({"id": model_id, "name": model_id, "repoId": repo_id, "path": str(path), "installed": installed,
+                       "status": "completed" if installed else state.get("status", "idle"),
+                       "progress": 100 if installed else state.get("progress", 0), "message": state.get("message", "")})
+    return result
+
+
+@router.post("/system/local-models/download")
+async def download_local_model(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    model_id = str(body.get("modelId") or "")
+    if model_id not in _LOCAL_MODEL_CATALOG:
+        return {"success": False, "message": "不支持的模型"}
+    with _download_lock:
+        status = _download_status.get(model_id, {}).get("status")
+        if status not in {"queued", "downloading"}:
+            _download_status[model_id] = {"status": "queued", "progress": 0, "message": "等待下载"}
+            _download_queue.put(model_id)
+    _ensure_download_worker()
+    return {"success": True, "message": "已加入下载队列"}
 
 
 @health_router.get("/health")

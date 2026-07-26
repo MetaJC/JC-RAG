@@ -22,6 +22,14 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
+  resolve: {
+    alias: [
+      {
+        find: 'jc-rag-admin-web/config/modelProviderExtensions',
+        replacement: path.resolve(__dirname, './src/config/modelProviderExtensions.ts'),
+      },
+    ],
+  },
   customLogger: {
     info(msg) {
       console.log(msg)

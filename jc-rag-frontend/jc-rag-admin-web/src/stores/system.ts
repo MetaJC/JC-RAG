@@ -113,16 +113,18 @@ export const useSystemStore = defineStore('system', () => {
     form.chunkOverlap = config.rag.chunk.overlap
   }
 
-  async function loadRuntimeConfig() {
+  async function loadRuntimeConfig(loadAuxiliary = true) {
     loading.value = true
     try {
       runtimeConfig.value = await fetchRuntimeConfig()
       bindForm(runtimeConfig.value)
-      await Promise.all([
-        refreshOfflineModels(),
-        refreshDevices(),
-        refreshServiceHealth(),
-      ])
+      if (loadAuxiliary) {
+        await Promise.all([
+          refreshOfflineModels(),
+          refreshDevices(),
+          refreshServiceHealth(),
+        ])
+      }
     } finally {
       loading.value = false
     }
