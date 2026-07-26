@@ -1,22 +1,27 @@
--- ============================================================
--- V38 继承 Agent 与 Skill 拆分菜单的角色授权
---
--- V37 将旧的 menu:agent_manage 拆分为 menu:rag_skill 和
--- menu:rag_agent。菜单项创建后必须继承原菜单已授予角色的权限，
--- 否则现有用户只能拿到已禁用的旧菜单，侧栏不会显示新菜单。
--- ============================================================
+-- =====================================================================
+-- 038: 绑定 super_admin 角色到新拆分的菜单 (rag_skill / rag_agent)
+-- <p>背景:
+--   1. V37 拆分了 Agent 与 Skill 菜单, 但 super_admin 角色未自动绑定新菜单
+--   2. super_admin 角色无新菜单权限, 前端 SidebarMenu 看不到
+-- <p>操作:
+--   1) 给 super_admin 角色绑定 menu:rag_skill
+--   2) 给 super_admin 角色绑定 menu:rag_agent
+--   3) 解绑 super_admin 角色的旧 menu:agent_manage (避免显示已禁用的旧菜单)
+-- <p>幂等: NOT EXISTS 防止重复绑定
+-- @author JC
+-- =====================================================================
 
-INSERT INTO rbac_role_permission (role_id, permission_id, data_scope)
-SELECT legacy.role_id, target.id, legacy.data_scope
-FROM rbac_role_permission legacy
-JOIN rbac_permission legacy_menu
-  ON legacy_menu.id = legacy.permission_id
-JOIN rbac_permission target
-  ON target.perm_code IN ('menu:rag_skill', 'menu:rag_agent')
-WHERE legacy_menu.perm_code = 'menu:agent_manage'
-  AND NOT EXISTS (
-    SELECT 1
-    FROM rbac_role_permission existing
-    WHERE existing.role_id = legacy.role_id
-      AND existing.permission_id = target.id
-  );
+-- 1) 绑定 super_admin 角色到新菜单
+INSERT INTO rbac_role_permission (role_id, permission_id)
+SELECT r.id, p.id
+  FROM rbac_role r
+  JOIN rbac_permission p ON p.perm_code IN ('menu:rag_skill', 'menu:rag_agent')
+ WHERE r.role_code = 'super_admin'
+   AND NOT EXISTS (
+        SELECT 1 FROM rbac_role_permission rp
+         WHERE rp.role_id = r.id AND rp.permission_id = p.id
+   );
+
+-- 2) 解绑 super_admin 角色的旧 menu:agent_manage (旧菜单已禁用, 避免显示)
+DELETE FROM rbac_role_permission
+ WHERE permission_id IN (SELECT id FROM rbac_permission WHERE perm_code = 'menu:agent_manage');

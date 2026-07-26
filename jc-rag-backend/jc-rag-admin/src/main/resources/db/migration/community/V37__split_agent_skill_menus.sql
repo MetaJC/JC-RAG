@@ -1,32 +1,47 @@
--- ============================================================
--- V37 拆分 Agent 与 Skill 菜单
--- <p>原 menu:agent_manage (Agent 与 Skill) 单页管理过于集中, 拆为:
---   - menu:rag_skill   (技能管理)   /rag/skill
---   - menu:rag_agent   (智能体管理) /rag/agent
--- <p>前端 AgentSkillManageView.vue 已拆分为 RagSkillManageView.vue + RagAgentManageView.vue
--- <p>旧 /agents/manage 路径已重定向到 /rag/agent, menu:agent_manage 仍保留数据但禁用
--- <p>sort=7 与原 agent_manage 保持连续, 视觉位置不变
---
+-- =====================================================================
+-- 037: 拆分 "Agent 与 Skill" 单页面菜单为两个独立页面
+-- <p>背景:
+--   1. 旧页面 AgentSkillManageView.vue 拆分为 RagSkillManageView.vue + RagAgentManageView.vue
+--   2. 旧菜单 menu:agent_manage (path=/agents/manage) 禁用, 改路由 redirect
+--   3. 新增 menu:rag_skill (path=/rag/skill) 和 menu:rag_agent (path=/rag/agent)
+-- <p>操作:
+--   1) 禁用旧 menu:agent_manage
+--   2) 新增 menu:rag_skill (Skills 管理)
+--   3) 新增 menu:rag_agent (Agent 管理)
+-- <p>幂等: ON DUPLICATE KEY UPDATE 保证重跑安全
 -- @author JC
--- @since 2026-07-25
--- ============================================================
+-- =====================================================================
 
--- 1. 禁用旧菜单 (保留数据, 可回滚)
+-- 1) 禁用旧菜单
 UPDATE rbac_permission
-SET status = 0, visible = 0
-WHERE perm_code = 'menu:agent_manage';
+   SET status = 0,
+       visible = 0
+ WHERE perm_code = 'menu:agent_manage';
 
--- 2. 新增两个菜单
+-- 2) 新增 Skills 管理菜单 (替换旧 sort=7)
 INSERT INTO rbac_permission
-  (perm_code, perm_name, perm_type, parent_id, path, icon, sort, component, visible, status)
+    (perm_code, perm_name, perm_type, parent_id, path, url_pattern, method, icon, sort, component, visible, status)
 VALUES
-  ('menu:rag_skill', '技能管理',   'MENU', 0, '/rag/skill', 'MagicStick', 7, 'views/RagSkillManageView.vue', 1, 1),
-  ('menu:rag_agent', '智能体管理', 'MENU', 0, '/rag/agent', 'Avatar',     7, 'views/RagAgentManageView.vue', 1, 1)
+    ('menu:rag_skill', '技能管理', 'MENU', 0, '/rag/skill', NULL, NULL, 'MagicStick', 7, 'views/RagSkillManageView.vue', 1, 1)
 ON DUPLICATE KEY UPDATE
-  perm_name = VALUES(perm_name),
-  path = VALUES(path),
-  icon = VALUES(icon),
-  sort = VALUES(sort),
-  component = VALUES(component),
-  status = 1,
-  visible = 1;
+    perm_name   = VALUES(perm_name),
+    path        = VALUES(path),
+    component   = VALUES(component),
+    icon        = VALUES(icon),
+    sort        = VALUES(sort),
+    visible     = VALUES(visible),
+    status      = VALUES(status);
+
+-- 3) 新增 Agent 管理菜单 (sort=8, 接续旧 sort=7 之后)
+INSERT INTO rbac_permission
+    (perm_code, perm_name, perm_type, parent_id, path, url_pattern, method, icon, sort, component, visible, status)
+VALUES
+    ('menu:rag_agent', '智能体管理', 'MENU', 0, '/rag/agent', NULL, NULL, 'Avatar', 8, 'views/RagAgentManageView.vue', 1, 1)
+ON DUPLICATE KEY UPDATE
+    perm_name   = VALUES(perm_name),
+    path        = VALUES(path),
+    component   = VALUES(component),
+    icon        = VALUES(icon),
+    sort        = VALUES(sort),
+    visible     = VALUES(visible),
+    status      = VALUES(status);

@@ -1,15 +1,16 @@
--- ============================================================
--- V36 禁用管理端问答中心菜单
--- <p>问答中心 (menu:qa_center) 在管理端价值有限, 长期未维护, 与 user 端问答功能重复
--- <p>前端组件 ChatCenterView.vue / api/chat.ts / types/chat.ts 已在源码中删除
--- <p>后端 ChatController / ChatService / ChatServiceImpl 整目录已删除
--- <p>本脚本仅禁用菜单 (status=0, visible=0), 保留数据, 可回滚
---
+-- =====================================================================
+-- 036: 禁用社区版 admin 后端"问答中心"菜单
+-- <p>背景:
+--   1. 社区版 admin 端 ChatCenterView.vue / api/chat.ts / 后端 chat/ 目录已删除
+--   2. 菜单表实际存于 rbac_permission (前身 sys_permission), 不存在 rbac_menu
+--   3. user 端问答中心不受影响, C 端继续可用
+-- <p>操作:
+--   UPDATE rbac_permission SET status=0, visible=0 WHERE perm_code='menu:qa_center'
+--   幂等: 重复执行结果一致
 -- @author JC
--- @since 2026-07-25
--- ============================================================
+-- =====================================================================
 
 UPDATE rbac_permission
-SET status = 0,
-    visible = 0
-WHERE perm_code = 'menu:qa_center';
+   SET status = 0,
+       visible = 0
+ WHERE perm_code = 'menu:qa_center';
