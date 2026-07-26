@@ -37,6 +37,8 @@ spring:
     locations: classpath:db/migration/community
     table: flyway_schema_history
     validate-on-migrate: true
+    # out-of-order=true: 允许补跑中间缺失的 migration (避免新增 SQL 被 strict validate 拒绝)
+    out-of-order: true
     clean-disabled: true
 
 management:

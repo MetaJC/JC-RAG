@@ -12,8 +12,6 @@ const proExtensionRoutesBuilt: RouteRecordRaw[] =
   builtMod['./pro-extension.ts.built']?.proExtensionRoutesBuilt ?? []
 
 import AuditLogView from '../views/AuditLogView.vue'
-import AgentSkillManageView from '../views/AgentSkillManageView.vue'
-import ChatCenterView from '../views/ChatCenterView.vue'
 import DataPermissionView from '../views/DataPermissionView.vue'
 import DemoConfigView from '../views/DemoConfigView.vue'
 import KnowledgeBaseView from '../views/KnowledgeBaseView.vue'
@@ -22,6 +20,8 @@ import LegalDocManageView from '../views/LegalDocManageView.vue'
 import LoginView from '../views/LoginView.vue'
 import MainLayout from '../components/MainLayout.vue'
 import PromptManageView from '../views/PromptManageView.vue'
+import RagAgentManageView from '../views/RagAgentManageView.vue'
+import RagSkillManageView from '../views/RagSkillManageView.vue'
 import RbacUserView from '../views/RbacUserView.vue'
 import RbacRoleView from '../views/RbacRoleView.vue'
 import RbacMenuView from '../views/RbacMenuView.vue'
@@ -67,11 +67,6 @@ const router = createRouter({
           path: '/knowledge/auth',
           name: 'knowledge-auth',
           component: KnowledgeBaseAuthView,
-        },
-        {
-          path: '/qa/center',
-          name: 'qa-center',
-          component: ChatCenterView,
         },
         {
           path: '/audit/logs',
@@ -122,9 +117,19 @@ const router = createRouter({
           component: PromptManageView,
         },
         {
+          // 旧路径保留重定向, 避免旧链接失效
           path: '/agents/manage',
-          name: 'agent-manage',
-          component: AgentSkillManageView,
+          redirect: '/rag/agent',
+        },
+        {
+          path: '/rag/skill',
+          name: 'rag-skill',
+          component: RagSkillManageView,
+        },
+        {
+          path: '/rag/agent',
+          name: 'rag-agent',
+          component: RagAgentManageView,
         },
         {
           path: '/demo/config',
@@ -148,11 +153,6 @@ const router = createRouter({
           path: '/dashboard',
           name: 'dashboard',
           component: SystemSettingsView,
-        },
-        {
-          path: '/chat',
-          name: 'chat',
-          component: ChatCenterView,
         },
         {
           path: '/sys/test',

@@ -1,10 +1,17 @@
 <script setup lang="ts">
+/**
+ * 智能体管理 (拆自 AgentSkillManageView, 2026-07-25)
+ * <p>集中管理: 系统智能体 (后台管控, C 端不可见) / 内建用户智能体 (后台创建, C 端可见) / C 端用户自建智能体 (审计).
+ * <p>Skill 管理独立到 RagSkillManageView, 本页通过 skills ref 引用 Skill 列表供 Agent 绑定.
+ *
+ * @author JC
+ */
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Edit, QuestionFilled, Search, Star, StarFilled, VideoPlay, VideoPause } from '@element-plus/icons-vue'
 import { fetchRbacRoles } from '../api/rbac'
 import {
-  fetchRagSkills, createRagSkill, updateRagSkill, deleteRagSkill,
+  fetchRagSkills,
   fetchRagAgents, createRagAgent, updateRagAgent, deleteRagAgent,
   publishRagAgent, unpublishRagAgent,
   setDefaultAgent, unsetDefaultAgent, getDefaultAgent,
@@ -12,9 +19,9 @@ import {
   updateAdminUserCustomAgentStatus,
 } from '../api/rag'
 
-const activeTab = ref('skills')
+const activeTab = ref('system')
 
-/* ====================== Skills ====================== */
+/* ====================== Skills (供 Agent 绑定) ====================== */
 const skills = ref<any[]>([])
 
 async function loadSkills() {
@@ -22,72 +29,25 @@ async function loadSkills() {
   skills.value = (skillRows.records ?? (skillRows || [])).map((item: any) => ({
     id: item.id,
     skillName: item.skill_name ?? item.skillName,
-    skillKey: item.skill_key ?? item.skillKey,
-    description: item.description ?? '',
-    promptTemplate: item.prompt_template ?? item.promptTemplate ?? '',
-    triggerType: item.trigger_type ?? item.triggerType ?? 'auto',
-    triggerRules: item.trigger_rules ?? item.triggerRules ?? '',
-    icon: item.icon ?? '',
-    sortOrder: item.sort_order ?? item.sortOrder ?? 0,
-    status: item.status ?? 1,
   }))
 }
 
-const skillDialog = ref(false)
-const editingSkillId = ref<number | null>(null)
-const skillForm = ref({ skillName: '', skillKey: '', description: '', promptTemplate: '', triggerType: 'auto', triggerRules: '', icon: '', sortOrder: 0, status: 1 })
-
-function openSkill(item?: any) {
-  editingSkillId.value = item?.id ?? null
-  skillForm.value = item ? { ...item } : { skillName: '', skillKey: '', description: '', promptTemplate: '', triggerType: 'auto', triggerRules: '', icon: '', sortOrder: 0, status: 1 }
-  skillDialog.value = true
-}
-
-async function saveSkill() {
-  try {
-    if (editingSkillId.value) {
-      await updateRagSkill(editingSkillId.value, skillForm.value)
-    } else {
-      await createRagSkill(skillForm.value)
-    }
-    skillDialog.value = false
-    await loadSkills()
-    ElMessage.success('保存成功')
-  } catch { ElMessage.error('保存失败') }
-}
-
-async function removeSkill(id: number) {
-  try {
-    await ElMessageBox.confirm('确认删除该 Skill？', '删除确认', { type: 'warning' })
-    await deleteRagSkill(id)
-    await loadSkills()
-    ElMessage.success('删除成功')
-  } catch {}
-}
-
-/* ====================== 系统智能体 (isSystem=1, 后台管控, C 端不可见) ====================== */
+/* ====================== 系统智能体 ====================== */
 const systemAgents = ref<any[]>([])
 const roles = ref<any[]>([])
 const defaultAgentId = ref<number | null>(null)
 const systemDialog = ref(false)
 const editingSystemId = ref<number | null>(null)
 const systemForm = ref({
-  agentName: '',
-  agentKey: '',
-  description: '',
-  systemPrompt: '',
-  content: '',
-  temperature: 0.7,
-  maxTokens: 2048,
-  skillIds: [] as number[],
-  roleIds: [] as number[],
-  isSystem: 1 as number,
+  agentName: '', agentKey: '', description: '', systemPrompt: '', content: '',
+  temperature: 0.7, maxTokens: 2048,
+  skillIds: [] as number[], roleIds: [] as number[], isSystem: 1 as number,
 })
 
 async function loadSystemAgents() {
   const [agentRows, roleRows, defaultId] = await Promise.all([
     fetchRagAgents({ pageNum: 1, pageSize: 100, isSystem: 1 } as any),
-    fetchRbacRoles(),
+    fetchRbacRoles({ page: 1, size: 100 }),
     getDefaultAgent().catch(() => null),
   ])
   systemAgents.value = (agentRows.records ?? (agentRows || [])).map((item: any) => ({
@@ -115,13 +75,9 @@ function openSystemAgent(item?: any) {
   editingSystemId.value = item?.id ?? null
   if (item) {
     systemForm.value = {
-      agentName: item.agentName,
-      agentKey: item.agentKey,
-      description: item.description,
-      systemPrompt: item.systemPrompt,
-      content: '',
-      temperature: item.temperature,
-      maxTokens: item.maxTokens,
+      agentName: item.agentName, agentKey: item.agentKey, description: item.description,
+      systemPrompt: item.systemPrompt, content: '',
+      temperature: item.temperature, maxTokens: item.maxTokens,
       skillIds: (item.skills || []).map((s: any) => s.id),
       roleIds: (item.roles || []).map((r: any) => r.id),
       isSystem: 1,
@@ -174,22 +130,14 @@ async function clearDefault() {
   catch (e: any) { ElMessage.error(e?.message || '取消失败') }
 }
 
-/* ====================== 用户智能体 ====================== */
-// 1) 内建用户智能体 (sys_agents.is_system=0, 后台创建, C 端所有用户可见)
+/* ====================== 内建用户智能体 ====================== */
 const builtInAgents = ref<any[]>([])
 const builtInDialog = ref(false)
 const editingBuiltInId = ref<number | null>(null)
 const builtInForm = ref({
-  agentName: '',
-  agentKey: '',
-  description: '',
-  systemPrompt: '',
-  content: '',
-  temperature: 0.7,
-  maxTokens: 2048,
-  skillIds: [] as number[],
-  roleIds: [] as number[],
-  isSystem: 0 as number,
+  agentName: '', agentKey: '', description: '', systemPrompt: '', content: '',
+  temperature: 0.7, maxTokens: 2048,
+  skillIds: [] as number[], roleIds: [] as number[], isSystem: 0 as number,
 })
 
 async function loadBuiltInAgents() {
@@ -212,13 +160,9 @@ function openBuiltInAgent(item?: any) {
   editingBuiltInId.value = item?.id ?? null
   if (item) {
     builtInForm.value = {
-      agentName: item.agentName,
-      agentKey: item.agentKey,
-      description: item.description,
-      systemPrompt: '',
-      content: item.content,
-      temperature: item.temperature,
-      maxTokens: item.maxTokens,
+      agentName: item.agentName, agentKey: item.agentKey, description: item.description,
+      systemPrompt: '', content: item.content,
+      temperature: item.temperature, maxTokens: item.maxTokens,
       skillIds: (item.skills || []).map((s: any) => s.id),
       roleIds: (item.roles || []).map((r: any) => r.id),
       isSystem: 0,
@@ -256,7 +200,7 @@ async function removeBuiltInAgent(id: number) {
   } catch {}
 }
 
-// 2) C 端用户自建智能体 (user_custom_agent, 后台仅做审计/启停/强制删除)
+/* ====================== C 端用户自建智能体 (审计) ====================== */
 const userAgents = ref<any[]>([])
 const userAgentTotal = ref(0)
 const userAgentPageNum = ref(1)
@@ -273,15 +217,10 @@ async function loadUserAgents() {
       status: userAgentStatus.value === '' ? undefined : (userAgentStatus.value as number),
     })
     userAgents.value = (data.records ?? []).map((item: any) => ({
-      id: item.id,
-      userId: item.userId,
-      username: item.username || '-',
-      nickname: item.nickname || '',
-      agentName: item.agentName,
-      content: item.content || '',
-      status: item.status ?? 1,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
+      id: item.id, userId: item.userId,
+      username: item.username || '-', nickname: item.nickname || '',
+      agentName: item.agentName, content: item.content || '',
+      status: item.status ?? 1, createdAt: item.createdAt, updatedAt: item.updatedAt,
     }))
     userAgentTotal.value = data.total ?? 0
   } catch (e: any) {
@@ -308,8 +247,7 @@ async function toggleUserAgentStatus(row: any) {
   try {
     await ElMessageBox.confirm(
       `确认将该用户智能体「${row.agentName}」${newStatus === 1 ? '启用' : '禁用'}？`,
-      '状态变更确认',
-      { type: 'warning' }
+      '状态变更确认', { type: 'warning' }
     )
     await updateAdminUserCustomAgentStatus(row.id, newStatus)
     ElMessage.success('已更新')
@@ -321,8 +259,7 @@ async function forceRemoveUserAgent(id: number, name: string) {
   try {
     await ElMessageBox.confirm(
       `确认强制删除用户智能体「${name}」？此操作会写入审计日志且不可恢复。`,
-      '强制删除确认',
-      { type: 'error' }
+      '强制删除确认', { type: 'error' }
     )
     await forceDeleteUserCustomAgent(id)
     ElMessage.success('已强制删除')
@@ -332,9 +269,7 @@ async function forceRemoveUserAgent(id: number, name: string) {
 
 /* ====================== 初始加载 ====================== */
 onMounted(async () => {
-  await loadSkills()
-  await loadSystemAgents()
-  await loadBuiltInAgents()
+  await Promise.all([loadSkills(), loadSystemAgents(), loadBuiltInAgents()])
   await loadUserAgents()
 })
 </script>
@@ -343,36 +278,13 @@ onMounted(async () => {
   <div class="page-wrap">
     <div class="page-head">
       <div>
-        <h1>Agent 与 Skill</h1>
-        <p>集中管理技能模板、系统智能体、内建用户智能体和 C 端用户自建智能体的审计。</p>
+        <h1>智能体管理</h1>
+        <p>集中管理智能体: 系统管控智能体 / 内建用户智能体 / C 端用户自建智能体审计。Skill 管理请前往「技能管理」页面。</p>
       </div>
     </div>
 
     <el-card shadow="never">
       <el-tabs v-model="activeTab">
-        <!-- Skills -->
-        <el-tab-pane label="Skills" name="skills">
-          <div class="toolbar">
-            <el-button type="primary" @click="openSkill()">新建 Skill</el-button>
-          </div>
-          <el-table :data="skills" stripe>
-            <el-table-column prop="skillName" label="名称" min-width="160" />
-            <el-table-column prop="skillKey" label="标识" min-width="140" />
-            <el-table-column prop="triggerType" label="触发方式" width="100" />
-            <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
-            <el-table-column label="操作" width="120" fixed="right">
-              <template #default="{ row }">
-                <el-tooltip content="编辑" placement="top">
-                  <el-button link type="primary" :icon="Edit" @click="openSkill(row)" />
-                </el-tooltip>
-                <el-tooltip content="删除" placement="top">
-                  <el-button link type="danger" :icon="Delete" @click="removeSkill(row.id)" />
-                </el-tooltip>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-tab-pane>
-
         <!-- 系统智能体 -->
         <el-tab-pane label="系统智能体" name="system">
           <div class="agent-tip" v-if="defaultAgentId">
@@ -424,137 +336,112 @@ onMounted(async () => {
           </el-table>
         </el-tab-pane>
 
-        <!-- 用户智能体 (内建 + C 端用户自建) -->
-        <el-tab-pane label="用户智能体" name="user-agents">
+        <!-- 内建用户智能体 -->
+        <el-tab-pane label="内建用户智能体" name="built-in">
           <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
             <template #title>
-              本页统一管理两类用户智能体：<br />
-              ① <b>内建用户智能体</b>：后台创建, 所有 C 端用户可见可选, 走 user prompt, 不可作默认；<br />
-              ② <b>C 端用户自建智能体</b>：C 端用户创建, 仅本人可见, 后台仅做审计/启停/强制删除, 不允许编辑。
+              内建用户智能体 = 后台创建, 所有 C 端用户可见可选, 走 user prompt, 不可作为默认智能体。
             </template>
           </el-alert>
-
-          <!-- 内建用户智能体 -->
-          <div class="sub-section">
-            <div class="sub-section-head">
-              <h3>内建用户智能体</h3>
-              <el-button type="primary" @click="openBuiltInAgent()">新建内建智能体</el-button>
-            </div>
-            <el-table :data="builtInAgents" stripe>
-              <el-table-column prop="agentName" label="名称" min-width="160" />
-              <el-table-column prop="agentKey" label="标识" min-width="160" />
-              <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">{{ ['草稿', '已发布', '已下架'][row.status] || '未知' }}</template>
-              </el-table-column>
-              <el-table-column label="操作" width="220" fixed="right">
-                <template #default="{ row }">
-                  <el-tooltip content="编辑" placement="top">
-                    <el-button link type="primary" :icon="Edit" @click="openBuiltInAgent(row)" />
-                  </el-tooltip>
-                  <el-tooltip :content="row.status === 1 ? '下架' : '发布'" placement="top">
-                    <el-button v-if="row.status !== 1" link type="success" :icon="VideoPlay" @click="publishBuiltInAgent(row.id)" />
-                    <el-button v-else link type="warning" :icon="VideoPause" @click="unpublishBuiltInAgent(row.id)" />
-                  </el-tooltip>
-                  <el-tooltip content="删除" placement="top">
-                    <el-button link type="danger" :icon="Delete" @click="removeBuiltInAgent(row.id)" />
-                  </el-tooltip>
-                </template>
-              </el-table-column>
-            </el-table>
+          <div class="sub-section-head">
+            <h3>内建用户智能体</h3>
+            <el-button type="primary" @click="openBuiltInAgent()">新建内建智能体</el-button>
           </div>
+          <el-table :data="builtInAgents" stripe>
+            <el-table-column prop="agentName" label="名称" min-width="160" />
+            <el-table-column prop="agentKey" label="标识" min-width="160" />
+            <el-table-column prop="description" label="描述" min-width="220" show-overflow-tooltip />
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">{{ ['草稿', '已发布', '已下架'][row.status] || '未知' }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="220" fixed="right">
+              <template #default="{ row }">
+                <el-tooltip content="编辑" placement="top">
+                  <el-button link type="primary" :icon="Edit" @click="openBuiltInAgent(row)" />
+                </el-tooltip>
+                <el-tooltip :content="row.status === 1 ? '下架' : '发布'" placement="top">
+                  <el-button v-if="row.status !== 1" link type="success" :icon="VideoPlay" @click="publishBuiltInAgent(row.id)" />
+                  <el-button v-else link type="warning" :icon="VideoPause" @click="unpublishBuiltInAgent(row.id)" />
+                </el-tooltip>
+                <el-tooltip content="删除" placement="top">
+                  <el-button link type="danger" :icon="Delete" @click="removeBuiltInAgent(row.id)" />
+                </el-tooltip>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-tab-pane>
 
-          <!-- C 端用户自建智能体 -->
-          <div class="sub-section">
-            <div class="sub-section-head">
-              <h3>C 端用户自建智能体 (审计)</h3>
-            </div>
-            <div class="filter-bar">
-              <el-input v-model="userAgentKeyword" placeholder="搜索智能体名 / 提示词 / 用户名" clearable
-                :prefix-icon="Search" style="width: 280px"
-                @keyup.enter="onUserAgentSearch" @clear="onUserAgentSearch" />
-              <el-select v-model="userAgentStatus" placeholder="状态" clearable style="width: 140px" @change="onUserAgentSearch">
-                <el-option label="启用" :value="1" />
-                <el-option label="禁用" :value="0" />
-              </el-select>
-              <el-button type="primary" :icon="Search" @click="onUserAgentSearch">查询</el-button>
-              <el-text type="info" size="small">共 {{ userAgentTotal }} 条; 此处仅做审计/管理/查看, 不允许编辑用户内容</el-text>
-            </div>
-            <el-table :data="userAgents" stripe>
-              <el-table-column prop="id" label="ID" width="80" />
-              <el-table-column prop="agentName" label="智能体名" min-width="160" />
-              <el-table-column label="创建者" min-width="180">
-                <template #default="{ row }">
-                  <div class="creator-cell">
-                    <span class="creator-username">{{ row.username }}</span>
-                    <span v-if="row.nickname" class="creator-nickname">({{ row.nickname }})</span>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column prop="content" label="提示词内容" min-width="280" show-overflow-tooltip>
-                <template #default="{ row }">
-                  <span class="content-preview">{{ row.content || '(空)' }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
-                    {{ row.status === 1 ? '启用' : '禁用' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="createdAt" label="创建时间" min-width="160" />
-              <el-table-column label="操作" width="220" fixed="right">
-                <template #default="{ row }">
-                  <el-tooltip content="查看详情" placement="top">
-                    <el-button link type="primary" :icon="Search" @click="viewUserAgent(row.id)" />
-                  </el-tooltip>
-                  <el-tooltip :content="row.status === 1 ? '禁用' : '启用'" placement="top">
-                    <el-button link :type="row.status === 1 ? 'warning' : 'success'"
-                      :icon="row.status === 1 ? VideoPause : VideoPlay"
-                      @click="toggleUserAgentStatus(row)" />
-                  </el-tooltip>
-                  <el-tooltip content="强制删除 (审计)" placement="top">
-                    <el-button link type="danger" :icon="Delete" @click="forceRemoveUserAgent(row.id, row.agentName)" />
-                  </el-tooltip>
-                </template>
-              </el-table-column>
-            </el-table>
-            <el-pagination
-              v-model:current-page="userAgentPageNum"
-              v-model:page-size="userAgentPageSize"
-              :page-sizes="[10, 20, 50, 100]"
-              :total="userAgentTotal"
-              layout="total, sizes, prev, pager, next, jumper"
-              @current-change="onUserAgentPageChange"
-              @size-change="onUserAgentSizeChange"
-              style="margin-top: 16px; justify-content: flex-end"
-            />
+        <!-- C 端用户自建智能体 (审计) -->
+        <el-tab-pane label="C 端用户智能体" name="user-agents">
+          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
+            <template #title>
+              C 端用户自建智能体 = C 端用户创建, 仅本人可见, 后台仅做审计/启停/强制删除, 不允许编辑。
+            </template>
+          </el-alert>
+          <div class="filter-bar">
+            <el-input v-model="userAgentKeyword" placeholder="搜索智能体名 / 提示词 / 用户名" clearable
+              :prefix-icon="Search" style="width: 280px"
+              @keyup.enter="onUserAgentSearch" @clear="onUserAgentSearch" />
+            <el-select v-model="userAgentStatus" placeholder="状态" clearable style="width: 140px" @change="onUserAgentSearch">
+              <el-option label="启用" :value="1" />
+              <el-option label="禁用" :value="0" />
+            </el-select>
+            <el-button type="primary" :icon="Search" @click="onUserAgentSearch">查询</el-button>
+            <el-text type="info" size="small">共 {{ userAgentTotal }} 条; 此处仅做审计/管理/查看, 不允许编辑用户内容</el-text>
           </div>
+          <el-table :data="userAgents" stripe>
+            <el-table-column prop="id" label="ID" width="80" />
+            <el-table-column prop="agentName" label="智能体名" min-width="160" />
+            <el-table-column label="创建者" min-width="180">
+              <template #default="{ row }">
+                <div class="creator-cell">
+                  <span class="creator-username">{{ row.username }}</span>
+                  <span v-if="row.nickname" class="creator-nickname">({{ row.nickname }})</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="content" label="提示词内容" min-width="280" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="content-preview">{{ row.content || '(空)' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                  {{ row.status === 1 ? '启用' : '禁用' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="创建时间" min-width="160" />
+            <el-table-column label="操作" width="220" fixed="right">
+              <template #default="{ row }">
+                <el-tooltip content="查看详情" placement="top">
+                  <el-button link type="primary" :icon="Search" @click="viewUserAgent(row.id)" />
+                </el-tooltip>
+                <el-tooltip :content="row.status === 1 ? '禁用' : '启用'" placement="top">
+                  <el-button link :type="row.status === 1 ? 'warning' : 'success'"
+                    :icon="row.status === 1 ? VideoPause : VideoPlay"
+                    @click="toggleUserAgentStatus(row)" />
+                </el-tooltip>
+                <el-tooltip content="强制删除 (审计)" placement="top">
+                  <el-button link type="danger" :icon="Delete" @click="forceRemoveUserAgent(row.id, row.agentName)" />
+                </el-tooltip>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination
+            v-model:current-page="userAgentPageNum"
+            v-model:page-size="userAgentPageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="userAgentTotal"
+            layout="total, sizes, prev, pager, next, jumper"
+            @current-change="onUserAgentPageChange"
+            @size-change="onUserAgentSizeChange"
+            style="margin-top: 16px; justify-content: flex-end"
+          />
         </el-tab-pane>
       </el-tabs>
     </el-card>
-
-    <!-- Skill Dialog -->
-    <el-dialog v-model="skillDialog" :title="editingSkillId ? '编辑 Skill' : '新建 Skill'" width="680px">
-      <el-form label-position="top">
-        <el-form-item label="名称"><el-input v-model="skillForm.skillName" /></el-form-item>
-        <el-form-item label="标识键"><el-input v-model="skillForm.skillKey" /></el-form-item>
-        <el-form-item label="触发方式">
-          <el-select v-model="skillForm.triggerType" style="width: 100%">
-            <el-option label="自动" value="auto" />
-            <el-option label="关键词" value="keyword" />
-            <el-option label="手动" value="manual" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="描述"><el-input v-model="skillForm.description" type="textarea" :rows="3" /></el-form-item>
-        <el-form-item label="提示词模板"><el-input v-model="skillForm.promptTemplate" type="textarea" :rows="6" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="skillDialog = false">取消</el-button>
-        <el-button type="primary" @click="saveSkill">保存</el-button>
-      </template>
-    </el-dialog>
 
     <!-- 系统智能体 Dialog -->
     <el-dialog v-model="systemDialog" :title="editingSystemId ? '编辑系统智能体' : '新建系统智能体'" width="760px">
@@ -722,7 +609,7 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <!-- 用户智能体详情 Dialog -->
+    <!-- C 端用户智能体详情 Dialog -->
     <el-dialog v-model="userAgentDetailDialog" title="用户智能体详情" width="640px">
       <div v-if="userAgentDetail" class="detail-view">
         <el-descriptions :column="1" border>
@@ -775,7 +662,6 @@ onMounted(async () => {
 .content-preview { color: #4b5563; }
 .content-pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; max-height: 320px; overflow-y: auto; background: #f9fafb; padding: 12px; border-radius: 6px; }
 .detail-view { padding: 0 8px; }
-.sub-section { margin-bottom: 20px; }
 .sub-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .sub-section-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
 </style>
