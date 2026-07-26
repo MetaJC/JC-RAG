@@ -46,6 +46,15 @@ const navItems = computed<SidebarMenuItem[]>(() => {
 /** 当前展开的节点 key（path）。reactive 包裹 Set 才能追踪 add/delete */
 const openKeys = reactive(new Set<string>())
 
+/** 折叠态下, 当前打开 popover 浮层的一级菜单 path; null = 全部关闭
+ * <p>实现折叠态子菜单的互斥: 切换一级菜单时, 自动关闭上一个浮层
+ */
+const activePopover = ref<string | null>(null)
+
+function onPopoverOpen(path: string | null) {
+  activePopover.value = path
+}
+
 /** 路由变化时，自动展开包含当前路由的所有上级, 同时清掉"非命中"级的 openKeys
  * <p>之前 openKeys 只增不减: 切到别的顶级后, 旧顶级仍挂着 .open class → 残留"高亮"
  * <p>现在: 只保留包含当前路由路径的那些顶级在 openKeys 里
@@ -86,6 +95,10 @@ function go(path: string) {
 }
 
 function toggleTop(item: SidebarMenuItem) {
+  // 折叠态 + 有子菜单 = 留给 SidebarMenu 的 popover 浮层处理 (这里不能 go, 否则直接跳转)
+  if (collapsed.value && item.children?.length) {
+    return
+  }
   if (collapsed.value || !item.children?.length) {
     go(item.path)
     return
@@ -136,8 +149,7 @@ function findParent(target: string, items: SidebarMenuItem[], parent?: string): 
     <aside class="layout-sidebar">
       <div class="brand-row">
         <span class="brand-title" v-show="!collapsed">RAG 系统</span>
-        <span class="brand-title brand-icon" v-show="collapsed">R</span>
-        <span class="toggle-btn" @click="toggleSidebar" :title="collapsed ? '展开' : '收起'">
+        <span class="toggle-btn" :class="{ 'is-standalone': collapsed }" @click="toggleSidebar" :title="collapsed ? '展开' : '收起'">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <rect x="2" y="3" width="12" height="1.5" rx="0.75" :fill="collapsed ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.5)'"/>
             <rect x="2" y="7" width="12" height="1.5" rx="0.75" :fill="collapsed ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.5)'"/>
@@ -156,6 +168,8 @@ function findParent(target: string, items: SidebarMenuItem[], parent?: string): 
           :open-keys="openKeys"
           :toggle="toggleTop"
           :go="go"
+          :active-popover="activePopover"
+          :on-popover-open="onPopoverOpen"
         />
       </nav>
     </aside>
@@ -200,6 +214,14 @@ function findParent(target: string, items: SidebarMenuItem[], parent?: string): 
   padding: 0 12px 14px 12px;   /* 顶替外层 padding, 让品牌区有左右间距 */
   margin-bottom: 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.collapsed .brand-row {
+  justify-content: center;
+  padding: 0 0 12px 0;
+  border-bottom-color: transparent;
+}
+.toggle-btn.is-standalone {
+  margin: 0 auto;
 }
 
 .brand-title {

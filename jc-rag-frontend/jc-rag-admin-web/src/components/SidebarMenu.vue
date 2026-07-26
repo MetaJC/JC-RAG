@@ -2,10 +2,11 @@
 /**
  * 侧边栏菜单项 (递归组件, 支持无限层级)
  * <p>由 MainLayout 渲染顶级节点, 本组件递归处理子节点
+ * <p>折叠态下, 有一级子菜单的父项用 el-popover 弹出浮层, 无子菜单的项直接 go
  *
  * @author JC
  */
-import { computed, type PropType } from 'vue'
+import { computed, ref, watch, type PropType } from 'vue'
 import { useRoute } from 'vue-router'
 
 export interface SidebarMenuItem {
@@ -25,6 +26,10 @@ const props = defineProps({
   openKeys: { type: Object as PropType<Set<string>>, required: true },
   toggle: { type: Function as PropType<(item: SidebarMenuItem) => void>, required: true },
   go: { type: Function as PropType<(path: string) => void>, required: true },
+  /** 折叠态下, 当前打开 popover 的父菜单 path; null = 全部关闭 (用于互斥) */
+  activePopover: { type: String as PropType<string | null>, default: null },
+  /** 父组件回调, 通知切换 popover 显隐 */
+  onPopoverOpen: { type: Function as PropType<(path: string | null) => void>, required: true },
 })
 
 const route = useRoute()
@@ -45,11 +50,92 @@ const isTopActive = computed(() => {
   if (props.item.depth !== 0) return false
   return ownsRoutePath(props.item, route.path)
 })
+
+/** 折叠态 + 有子菜单 = 走 popover 模式 */
+const usePopover = computed(
+  () => props.collapsed && !!props.item.children?.length,
+)
+
+/** 当前 popover 是否打开 (受父组件 activePopover 控制, 实现互斥) */
+const popoverVisible = ref(false)
+watch(
+  () => props.activePopover,
+  (val) => {
+    popoverVisible.value = val === props.item.path
+  },
+  { immediate: true },
+)
+
+function onPopoverTriggerClick() {
+  if (popoverVisible.value) {
+    props.onPopoverOpen(null)
+  } else {
+    props.onPopoverOpen(props.item.path)
+  }
+}
+
+function onPopoverItemClick(child: SidebarMenuItem) {
+  props.onPopoverOpen(null)
+  props.go(child.path)
+}
 </script>
 
 <template>
   <div class="nav-block" :class="`depth-${Math.min(item.depth, 2)}`">
+    <!-- 折叠态 + 有子菜单: el-popover 包裹, 点击右侧弹出浮层 -->
+    <el-popover
+      v-if="usePopover"
+      v-model:visible="popoverVisible"
+      placement="right-start"
+      :width="200"
+      trigger="manual"
+      :show-arrow="false"
+      popper-class="jc-sidebar-popover"
+      :hide-after="0"
+    >
+      <template #reference>
+        <button
+          class="nav-item nav-top is-collapsed-parent"
+          :class="{ active: isTopActive }"
+          :title="item.label"
+          @click="onPopoverTriggerClick"
+        >
+          <span class="nav-icon" :class="{ 'is-empty': !item.icon }">
+            <el-icon v-if="item.icon" :size="16"><component :is="item.icon" /></el-icon>
+          </span>
+        </button>
+      </template>
+      <div class="popover-menu">
+        <div class="popover-title">{{ item.label }}</div>
+        <button
+          v-for="child in item.children"
+          :key="child.path"
+          class="popover-item"
+          :class="{ active: isActive(child.path) }"
+          @click="onPopoverItemClick(child)"
+        >
+          <el-icon v-if="child.icon" :size="14" class="popover-item-icon"><component :is="child.icon" /></el-icon>
+          <span class="popover-item-label">{{ child.label }}</span>
+        </button>
+      </div>
+    </el-popover>
+
+    <!-- 折叠态 + 无子菜单: 简单 button, 直接 go -->
     <button
+      v-else-if="collapsed"
+      class="nav-item"
+      :class="[ item.depth === 0 ? 'nav-top' : { 'nav-sub': true, 'nav-sub-d1': item.depth === 1, 'nav-sub-d2': item.depth === 2 }, { active: item.depth === 0 ? isTopActive : isActive(item.path) } ]"
+      :title="item.label"
+      @click="go(item.path)"
+    >
+      <span class="nav-icon" :class="{ 'is-empty': !item.icon }">
+        <el-icon v-if="item.icon" :size="16"><component :is="item.icon" /></el-icon>
+      </span>
+    </button>
+
+    <!-- 展开态: 原有逻辑 (图标 + 文字 + 箭头) -->
+    <button
+      v-else
       class="nav-item"
       :class="[
         item.depth === 0
@@ -60,14 +146,12 @@ const isTopActive = computed(() => {
       :title="collapsed ? item.label : ''"
       @click="item.children?.length ? toggle(item) : go(item.path)"
     >
-      <!-- 图标固定宽占位: 有图标就显示, 没图标就空 div 占位, 保证 label 文字左对齐 -->
       <span class="nav-icon" :class="{ 'is-empty': !item.icon }">
         <el-icon v-if="item.icon" :size="16"><component :is="item.icon" /></el-icon>
       </span>
-      <span class="nav-label">{{ collapsed && item.depth === 0 ? item.short : item.label }}</span>
-      <!-- 非实心箭头 (SVG), 比 ▸ 大且更清晰 -->
+      <span class="nav-label">{{ item.label }}</span>
       <svg
-        v-if="!collapsed && item.children?.length"
+        v-if="item.children?.length"
         class="nav-caret"
         :class="{ open: openKeys.has(item.path) }"
         width="14"
@@ -81,7 +165,8 @@ const isTopActive = computed(() => {
         <path d="M5.5 3.5 L10.5 8 L5.5 12.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </button>
-    <!-- 子菜单组: 顺滑展开/折叠动画 (max-height + opacity) -->
+
+    <!-- 子菜单组: 展开态才显示 (折叠态下子菜单在 popover 内) -->
     <transition name="submenu">
       <div
         v-show="!collapsed && item.children?.length && openKeys.has(item.path)"
@@ -96,6 +181,8 @@ const isTopActive = computed(() => {
           :open-keys="openKeys"
           :toggle="toggle"
           :go="go"
+          :active-popover="activePopover"
+          :on-popover-open="onPopoverOpen"
         />
       </div>
     </transition>
@@ -157,6 +244,14 @@ export default { name: 'SidebarMenu' }
   font-size: 13px;
   transition: background-color 0.18s ease, color 0.18s ease, font-weight 0.18s ease;
   font-weight: 400;
+}
+.collapsed .nav-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+.collapsed .nav-icon {
+  margin-right: 0;
 }
 
 /* ============ 图标固定宽占位 ============ */
@@ -280,5 +375,73 @@ export default { name: 'SidebarMenu' }
   color: #fff;
   font-weight: 600;
   box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.2);
+}
+/* ============ 折叠态子菜单浮层 (el-popover 内容) ============ */
+.popover-menu {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0;
+}
+.popover-title {
+  padding: 6px 14px 8px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 600;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 4px;
+}
+.popover-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 14px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: #334155;
+  font-size: 13px;
+  transition: background-color 0.15s, color 0.15s;
+}
+.popover-item:hover {
+  background-color: rgba(30, 64, 175, 0.08);
+  color: #1e40af;
+}
+.popover-item.active,
+.popover-item.active:hover {
+  background-color: #1e40af;
+  color: #fff;
+  font-weight: 600;
+}
+.popover-item-icon {
+  flex-shrink: 0;
+  color: inherit;
+  opacity: 0.85;
+}
+.popover-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ 折叠态父菜单 icon 居中 ============ */
+.is-collapsed-parent {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+.is-collapsed-parent .nav-icon {
+  margin-right: 0;
+}
+
+<style>
+/* 全局: popover 容器去掉默认 padding, 由内部 popover-menu 自管 */
+.jc-sidebar-popover.el-popper {
+  padding: 0 !important;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.12);
 }
 </style>
