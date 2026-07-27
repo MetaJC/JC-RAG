@@ -3,6 +3,35 @@ name = "jc-rag-community"
 version = "0.0.1.dev0"
 description = "JC RAG 社区版 Python Service. RAG 业务实现 (FastAPI). 可作为 wheel 被商业版 in-process 集成, 也可独立运行 (uvicorn app.main:app)."
 requires-python = ">=3.10"
+
+# ============================================================
+# torch 安装矩阵: 本项目不固定 torch 版本, 装完基础依赖后按你的环境选一种
+# ============================================================
+# 1. 纯 CPU 部署 (任何机器都能跑, 性能最差)
+#      pip install -e .      # uv sync 默认装 CPU 版 torch
+#
+# 2. NVIDIA GPU 加速 (按 CUDA 版本选, 推荐用 cu126 或 cu128)
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#    (CUDA 13.x: 暂无官方 wheel, 先用 cu128 兼容 13.x, 或等官方发布)
+#
+# 3. Intel/AMD 集显/独显 加速 (Windows + DirectML, 兼容 Intel Arc/UHD, AMD Radeon, NVIDIA 集显)
+#      pip install torch-directml onnxruntime-directml
+#
+# 4. Apple Silicon (M1/M2/M3/M4) - 自动支持
+#      pip install -e .      # PyTorch 自动走 MPS
+#
+# 5. AMD ROCm 加速 (Linux, AMD 独显)
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3
+#
+# 6. Intel XPU 加速 (Linux, Intel 独显)
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+# ============================================================
+# Legacy .doc 解析可选 (Windows + Python 3.10 通常装不上 textract): .doc 转 .docx 后再处理
+
 dependencies = [
     "fastapi==0.115.6",
     "uvicorn[standard]==0.32.1",
@@ -13,6 +42,15 @@ dependencies = [
     "langchain==0.3.9",
     "langchain-community==0.3.9",
     "sentence-transformers==3.3.1",
+    # transformers 锁 4.45.2:
+    #   1) 避开 transformers 4.48+ 引入的 check_torch_load_is_safe (CVE-2025-32434) 硬性检查
+    #   2) 配合 app/embeddings/__init__.py _resolve_device() 的 privateuseone:0 lazy init,
+    #      真实启用 Arc 140T GPU 加速 (修复前是写死 'dml' 字符串的 bug, 从未生效)
+    #   3) sentence-transformers 3.3.1 官方测试矩阵同期 (2024-12)
+    #   升级到 4.46+ 需先验证 check_torch_load_is_safe 仍未引入 (4.48 之前安全)
+    "transformers==4.45.2",
+    "huggingface-hub>=0.20.0,<0.30",
+    "tokenizers<0.21",
     "elasticsearch==8.17.0",
     "pypdf==5.5.0",
     "PyMuPDF==1.24.14",
@@ -20,6 +58,7 @@ dependencies = [
     "opencv-python==4.11.0.86",
     "rapidocr-onnxruntime==1.4.4",
     "onnxruntime-directml==1.22.0",
+    "onnxruntime==1.22.0",  # 与 onnxruntime-directml 强一致, 避开 cp310 无 wheel 问题
     "minio==7.2.15",
     "psutil==5.9.8",
 ]

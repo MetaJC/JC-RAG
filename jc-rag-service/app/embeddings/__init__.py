@@ -44,10 +44,13 @@ def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
         pass
     try:
         import torch_directml
-        logger.info("Embedding 启用 DirectML GPU 加速")
-        return "dml"
-    except Exception:
-        pass
+        # 验证 DirectML backend 真实可用 (0.2.5.dev240914 + torch 2.4.1 可能未注册 torch.privateuseone 模块)
+        dml_dev = torch_directml.device()
+        torch.zeros(1, device=dml_dev)
+        logger.info("Embedding 启用 DirectML GPU 加速: %s", dml_dev)
+        return str(dml_dev)
+    except Exception as ex:
+        logger.warning("DirectML backend 不可用, fallback 到 CPU: %s", ex)
     if _check_lm_studio_available(lm_studio_url):
         logger.info("Embedding 使用 LM Studio API（Intel Arc GPU 加速）")
         return "lm_studio"

@@ -594,6 +594,9 @@ public class KnowledgeBaseServiceImpl
     @Transactional
     public KbDocumentVO updateDocument(Long documentId, KnowledgeDocumentUpdateParam request) {
         Map<String, Object> existing = kbDocumentMapper.selectFileInfo(documentId);
+        if (existing == null) {
+            throw new ResourceNotFoundException("doc.not.found", documentId);
+        }
         // 鉴权: 需 EDIT
         Long kbId = asLong(existing.get("kb_id"));
         KbKnowledgeBaseEntity kb = kbPermissionService.loadActiveKb(kbId);
