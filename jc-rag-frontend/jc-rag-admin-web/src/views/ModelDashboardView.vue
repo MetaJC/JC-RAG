@@ -8,7 +8,7 @@ const activeModel = computed(() => config.value?.model.activeMode === 'online'
   ? config.value.model.online.modelName || '未选择'
   : config.value?.model.offline.ollama.defaultModel || '未选择')
 
-onMounted(() => void systemStore.loadRuntimeConfig())
+onMounted(() => void systemStore.loadRuntimeConfig(false))
 </script>
 
 <template>
