@@ -30,3 +30,50 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* Select menus are teleported outside scoped Vue components. */
+.el-select__popper .el-select-dropdown__item:has(.download-option),
+.el-select__popper .el-select-dropdown__item:has(.device-option) {
+  height: 64px;
+  line-height: normal;
+  padding: 0;
+}
+
+.el-select__popper .download-option,
+.el-select__popper .device-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 14px;
+}
+
+.el-select__popper .model-option-copy,
+.el-select__popper .device-option > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.el-select__popper .download-option small,
+.el-select__popper .device-option small {
+  color: #909399;
+  line-height: 18px;
+}
+
+.el-select__popper .installed,
+.el-select__popper .download-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+}
+
+.el-select__popper .installed { color: #16a34a; }
+.el-select__popper .installed svg,
+.el-select__popper .download-action svg { width: 20px; height: 20px; }
+.el-select__popper .download-action { border: 0; background: transparent; color: #475569; }

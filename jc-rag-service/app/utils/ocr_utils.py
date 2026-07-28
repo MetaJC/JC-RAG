@@ -2,11 +2,50 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
+
+os.environ.setdefault("OMP_NUM_THREADS", "4")
+os.environ.setdefault("OMP_THREAD_LIMIT", "4")
+os.environ.setdefault("MKL_NUM_THREADS", "4")
 
 logger = logging.getLogger(__name__)
 
 _ocr_engine = None
+_ocr_runtime_device: str | None = None
+
+
+def _create_ocr_engine(force_cpu: bool = False):
+    from rapidocr_onnxruntime import RapidOCR
+    if force_cpu:
+        return RapidOCR()
+    _, use_gpu_flags = _detect_gpu_provider()
+    return RapidOCR(**use_gpu_flags)
+
+
+def get_ocr_execution_device() -> str:
+    """Return the provider that will actually execute OCR, for progress logs."""
+    if _ocr_runtime_device:
+        return _ocr_runtime_device
+    providers, _ = _detect_gpu_provider()
+    if "CUDAExecutionProvider" in providers:
+        try:
+            import torch
+            return f"CUDA ({torch.cuda.get_device_name(0)})"
+        except Exception:
+            return "CUDA GPU"
+    if "DmlExecutionProvider" in providers:
+        try:
+            from app.core.config import get_settings
+            from app.core.device_detector import detect_all_devices
+            devices = detect_all_devices(get_settings())
+            device = next((item for item in devices if item.get("available") and str(item.get("id", "")).startswith("dml:")), None)
+            if device:
+                return str(device["name"])
+        except Exception:
+            pass
+        return "DirectML GPU"
+    return "CPU"
 
 
 def _detect_gpu_provider() -> tuple[list[str], dict[str, bool]]:
@@ -67,14 +106,13 @@ def get_ocr_engine():
         raise ValueError("OCR 功能未启用")
 
     try:
-        from rapidocr_onnxruntime import RapidOCR
+        import rapidocr_onnxruntime  # noqa: F401
     except Exception as ex:
         raise ValueError(
             "OCR 依赖未安装，请先执行 pip install -r requirements.txt 以启用扫描版 PDF 解析"
         ) from ex
 
-    _, use_gpu_flags = _detect_gpu_provider()
-    _ocr_engine = RapidOCR(**use_gpu_flags)
+    _ocr_engine = _create_ocr_engine()
     return _ocr_engine
 
 
@@ -132,6 +170,7 @@ def extract_text_from_ocr_result(result: Any, min_score: float = 0.45) -> str:
 
 
 def ocr_pdf_page_text(file_path: str, page_index: int, render_scale: float = 2.0, min_score: float = 0.45) -> str:
+    global _ocr_engine, _ocr_runtime_device
     ocr_engine = get_ocr_engine()
 
     try:
@@ -148,7 +187,16 @@ def ocr_pdf_page_text(file_path: str, page_index: int, render_scale: float = 2.0
         pixmap = page.get_pixmap(matrix=matrix, alpha=False)
         image_bytes = pixmap.tobytes("png")
 
-        result, _ = ocr_engine(image_bytes)
+        try:
+            result, _ = ocr_engine(image_bytes)
+        except Exception as ex:
+            # Some DirectML/driver combinations initialise successfully but
+            # fail during inference. Continue the document on CPU instead of
+            # failing the entire parse job.
+            logger.warning("OCR GPU inference failed on page %s; falling back to CPU: %s", page_index + 1, ex)
+            _ocr_engine = _create_ocr_engine(force_cpu=True)
+            _ocr_runtime_device = "CPU（DirectML 推理失败后回退）"
+            result, _ = _ocr_engine(image_bytes)
         return extract_text_from_ocr_result(result, min_score)
     finally:
         doc.close()

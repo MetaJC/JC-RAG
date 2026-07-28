@@ -1183,7 +1183,7 @@ public class KnowledgeBaseServiceImpl
     private java.util.List<Map<String, Object>> buildParseStagesFallback(String parseStatus, String fileExt) {
         java.util.List<Map<String, Object>> stages = new java.util.ArrayList<>();
         java.util.List<String> stageIds = getStageIdsByFileType(fileExt);
-        String[] stageNames = {"文档下载", "文本提取", "OCR识别", "文本切块", "向量嵌入", "ES索引写入"};
+        String[] stageNames = {"文档下载", "文本提取", "OCR识别", "文本切块", "向量嵌入", "向量索引写入"};
         int lastIdx = stageIds.size() - 1;
 
         int order = 0;
@@ -1327,7 +1327,7 @@ public class KnowledgeBaseServiceImpl
             if (resp.statusCode() == 200) {
                 vo.setSuccess(Boolean.TRUE);
                 vo.setStatus("SUCCESS");
-                vo.setMessage("任务已终止，ES 索引已回滚");
+                vo.setMessage("任务已终止，向量索引已回滚");
             } else {
                 vo.setSuccess(Boolean.FALSE);
                 vo.setStatus("FAILED");

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 from functools import lru_cache
@@ -32,6 +33,23 @@ def _check_lm_studio_available(base_url: str | None = None) -> bool:
 def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
     value = (device or "").strip().lower()
     if value and value != "auto":
+        if value.startswith("dml:"):
+            try:
+                import torch
+                import torch_directml
+                dml_device = torch_directml.device(int(value.split(":", 1)[1]))
+                torch.zeros(1, device=dml_device)
+                return str(dml_device)
+            except Exception as ex:
+                raise RuntimeError(f"Selected DirectML GPU is unavailable: {ex}") from ex
+        if value.startswith("cuda:"):
+            try:
+                import torch
+                index = int(value.split(":", 1)[1])
+                if not torch.cuda.is_available() or index >= torch.cuda.device_count():
+                    raise RuntimeError("CUDA runtime cannot access this device")
+            except ValueError:
+                raise RuntimeError(f"Invalid CUDA device identifier: {value}")
         logger.info("Embedding 设备由配置指定: %s", value)
         return value
     try:
@@ -63,7 +81,7 @@ def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
 # backend 切换, 当前 venv 下 cpu backend 加载 bge-large-zh-v1.5 会失败.
 # Pro 集成场景: Java 端 payload 的 ragOverride.embedding.device 与启动时
 # lifespan 探测的 device 不一致 (例如 dml → cpu), 改用 dict 缓存可彻底规避.
-_model_cache: dict[str, Any] = {}
+_model_cache: dict[tuple[str, str], Any] = {}
 
 
 def _load_model(model_path: str, device: str):
@@ -71,8 +89,18 @@ def _load_model(model_path: str, device: str):
 
     if not model_path or not Path(model_path).exists():
         raise ValueError(f"embedding.model_path 不存在或不可访问：{model_path}")
-    if model_path in _model_cache:
-        cached = _model_cache[model_path]
+    resolved_device = _resolve_device(device or "auto", None)
+    if "privateuse" in resolved_device.lower() and os.environ.get("JC_RAG_ALLOW_DIRECTML_EMBEDDING") != "1":
+        logger.warning("DirectML embedding disabled after runtime instability; using bounded CPU mode")
+        resolved_device = "cpu"
+        try:
+            import torch
+            torch.set_num_threads(min(4, max(1, os.cpu_count() or 1)))
+        except Exception:
+            pass
+    cache_key = (model_path, resolved_device)
+    if cache_key in _model_cache:
+        cached = _model_cache[cache_key]
         logger.info(
             "Embedding 复用缓存: model=%s, 实际 device=%s, 请求 device=%s",
             model_path, getattr(cached, "device", "unknown"), device,
@@ -80,14 +108,23 @@ def _load_model(model_path: str, device: str):
         return cached
     # 第一次加载: 用 _resolve_device("auto") 探测的 device, 而非 Java 端传过来的 device
     # Pro 启动时 lifespan 已用 auto 探测加载过一次 (dml), 此处保证 device 一致
-    resolved_device = _resolve_device("auto", None)
     if resolved_device != device:
         logger.warning(
             "Embedding 加载 device 归一化: 请求 %s → 实际 %s (避免 backend 切换崩溃)",
             device, resolved_device,
         )
-    model = SentenceTransformer(model_path, device=resolved_device)
-    _model_cache[model_path] = model
+    try:
+        model = SentenceTransformer(model_path, device=resolved_device)
+    except RuntimeError as ex:
+        if "privateuse" not in resolved_device.lower() and not resolved_device.lower().startswith("dml"):
+            raise
+        logger.warning("Embedding DirectML load failed; falling back to CPU: %r", ex)
+        resolved_device = "cpu"
+        cache_key = (model_path, resolved_device)
+        if cache_key in _model_cache:
+            return _model_cache[cache_key]
+        model = SentenceTransformer(model_path, device=resolved_device)
+    _model_cache[cache_key] = model
     return model
 
 
@@ -154,9 +191,9 @@ def _resolve_embedding_override(settings, embedding_override: dict[str, Any] | N
         dims_value = None
     batch_size = override.get("batchSize", settings.embedding.batch_size)
     try:
-        batch_size_value = int(batch_size) if batch_size is not None else 32
+        batch_size_value = min(8, max(1, int(batch_size))) if batch_size is not None else 8
     except Exception:
-        batch_size_value = 32
+        batch_size_value = 8
     normalize = override.get("normalizeEmbeddings", settings.embedding.normalize_embeddings)
     normalize_value = bool(normalize) if normalize is not None else True
     return {
@@ -208,18 +245,26 @@ def embed_texts(
         )
 
     model = _load_model(cfg["modelPath"], cfg["device"])
-    vectors = model.encode(
-        texts,
-        normalize_embeddings=cfg["normalizeEmbeddings"],
-        batch_size=cfg["batchSize"],
-        show_progress_bar=False,
-    )
+    try:
+        vectors = model.encode(
+            texts,
+            normalize_embeddings=cfg["normalizeEmbeddings"],
+            batch_size=cfg["batchSize"],
+            show_progress_bar=False,
+        )
+    except RuntimeError as ex:
+        actual_device = str(getattr(model, "device", cfg["device"]))
+        if "privateuse" not in actual_device.lower() and not actual_device.lower().startswith("dml"):
+            raise
+        logger.warning("Embedding DirectML inference failed; retrying on CPU: %r", ex)
+        model = _load_model(cfg["modelPath"], "cpu")
+        vectors = model.encode(texts, normalize_embeddings=cfg["normalizeEmbeddings"], batch_size=cfg["batchSize"], show_progress_bar=False)
     cost_ms = int((time.time() - started) * 1000)
     return (
         [vec.tolist() for vec in vectors],
         {
             "modelPath": cfg["modelPath"],
-            "device": cfg["device"],
+            "device": str(getattr(model, "device", cfg["device"])),
             "dims": int(model.get_sentence_embedding_dimension()),
             "costMs": cost_ms,
             "batchSize": cfg["batchSize"],

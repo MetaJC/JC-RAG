@@ -267,9 +267,9 @@ def _detect_external_services(settings) -> list[DeviceInfo]:
 def detect_all_devices(settings) -> list[dict[str, Any]]:
     result: list[DeviceInfo] = []
 
+    win_gpus = _detect_windows_gpus()
     torch_devices = _detect_torch_devices()
     dml_devices = _detect_directml_devices()
-    win_gpus = _detect_windows_gpus()
     torch_ids = {d.id for d in torch_devices}
     dml_ids = {d.id for d in dml_devices}
 
@@ -302,6 +302,15 @@ def detect_all_devices(settings) -> list[dict[str, Any]]:
                 break
 
     for dd in dml_devices:
+        # DirectML commonly reports a generic device name. Pair it with the
+        # strongest physical Windows adapter for a readable, useful choice.
+        if dd.name.lower().startswith("directml device"):
+            candidates = [g for g in win_gpus if g.id not in used_wmi]
+            if candidates:
+                physical = min(candidates, key=lambda g: g.performance_rank)
+                dd.name = f"{physical.name} (DirectML)"
+                dd.detail = "DirectML acceleration runtime is available"
+                used_wmi.add(physical.id)
         result.append(dd)
         for wg in win_gpus:
             if wg.id in used_wmi:
@@ -320,7 +329,8 @@ def detect_all_devices(settings) -> list[dict[str, Any]]:
         wg.detail = f"{wg.detail}（未检测到加速框架，需安装对应驱动）"
         result.append(wg)
 
-    result.extend(_detect_external_services(settings))
+    # Model-serving endpoints are not local compute devices. They are kept in
+    # the service-model settings and must not be selectable as a GPU/CPU here.
 
     cpu_name = _resolve_cpu_name()
     result.append(DeviceInfo(
@@ -336,7 +346,6 @@ def detect_all_devices(settings) -> list[dict[str, Any]]:
     )
 
     sorted_devices = sorted(result, key=lambda d: d.performance_rank)
-    sorted_devices.append(auto_device)
 
     return [
         {

@@ -20,7 +20,7 @@ _STAGE_NAMES: dict[str, str] = {
     "ocr": "OCR识别",
     "chunk": "文档分块",
     "embedding": "向量化",
-    "es_index": "ES索引",
+    "es_index": "向量索引",
 }
 
 
@@ -146,11 +146,13 @@ def update_progress(document_id: int, stage_id: str, progress: float, overall_pr
         if not entry:
             return
         entry["currentStage"] = stage_id
-        entry["overallProgress"] = min(int(overall_progress), 100)
-        now_iso = datetime.now().isoformat()
+        # Overlapping pipeline updates may arrive out of order. Keep display
+        # progress monotonic so neither the bar nor a stage moves backwards.
+        entry["overallProgress"] = max(int(entry.get("overallProgress", 0)), min(int(overall_progress), 100))
+        now_iso = datetime.now().astimezone().isoformat()
         for s in entry.get("stages", []):
             if s["stageId"] == stage_id:
-                s["progress"] = min(int(progress), 100)
+                s["progress"] = max(int(s.get("progress", 0)), min(int(progress), 100))
                 if stage_status == "completed":
                     s["status"] = "completed"
                     s["progress"] = 100

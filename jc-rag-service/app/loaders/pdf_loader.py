@@ -19,11 +19,6 @@ class PdfLoader(DocumentLoader):
     
     def load_with_meta(self, file_path: str) -> tuple[str, dict[str, Any]]:
         """加载 PDF 文件内容及元数据"""
-        from app.core.config import get_settings
-        from app.utils import ocr_pdf_page_text
-        
-        settings = get_settings()
-        
         try:
             import fitz
         except ImportError as ex:
@@ -40,14 +35,6 @@ class PdfLoader(DocumentLoader):
             text = page.get_text()
             
             # 如果文本内容很少，尝试 OCR
-            if not text.strip() or len(text.strip()) < 50:
-                if settings.ocr.enabled:
-                    text = ocr_pdf_page_text(
-                        doc, page_idx,
-                        render_scale=settings.ocr.render_scale,
-                        min_score=settings.ocr.text_score
-                    )
-            
             if text.strip():
                 pages.append(text)
         

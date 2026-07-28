@@ -856,7 +856,7 @@ const STAGE_NAME_MAP: Record<string, string> = {
   ocr: 'OCR识别',
   chunk: '文档分块',
   embedding: '向量化',
-  es_index: 'ES索引',
+  es_index: '向量索引',
 }
 
 function resolveStageName(stage: { stageId: string; stageName?: string }): string {
@@ -864,12 +864,12 @@ function resolveStageName(stage: { stageId: string; stageName?: string }): strin
 }
 
 function formatStageDuration(startAt: string, endAt: string): string {
-  const dur = new Date(endAt).getTime() - new Date(startAt).getTime()
+  const dur = Math.max(0, new Date(endAt).getTime() - new Date(startAt).getTime())
   return dur >= 1000 ? `${(dur / 1000).toFixed(1)} 秒` : `${dur} 毫秒`
 }
 
 function formatRunningDuration(startAt: string): string {
-  const dur = Date.now() - new Date(startAt).getTime()
+  const dur = Math.max(0, Date.now() - new Date(startAt).getTime())
   return dur >= 1000 ? `${(dur / 1000).toFixed(1)} 秒` : `${dur} 毫秒`
 }
 
@@ -1000,7 +1000,7 @@ function _hasNewlyCompleted(prevStages: { stageId: string; status: string }[] | 
 function onCancelParse() {
   const progress = parseProgress.value
   if (!progress?.documentId) return
-  ElMessageBox.confirm('确定要强制终止当前文档的解析任务吗？终止后将自动回滚已写入的 ES 索引数据。', '确认终止', {
+  ElMessageBox.confirm('确定要强制终止当前文档的解析任务吗？终止后将自动回滚已写入的向量索引数据。', '确认终止', {
     confirmButtonText: '确定终止',
     cancelButtonText: '取消',
     type: 'warning',
@@ -1008,7 +1008,7 @@ function onCancelParse() {
     await cancelDocumentParse(progress.documentId!)
     stopParsePolling()
     await fetchParseProgressData(progress.documentId!)
-    ElMessage.warning('任务已终止，ES 索引已回滚')
+    ElMessage.warning('任务已终止，向量索引已回滚')
   }).catch(() => {})
 }
 

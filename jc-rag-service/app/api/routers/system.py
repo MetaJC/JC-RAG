@@ -141,13 +141,16 @@ async def system_devices() -> list[dict[str, Any]]:
 
 _cached_cpu_name: str | None = None
 _cached_gpu_names: list[str] | None = None
+_device_names_ts: float = 0.0
 _gpu_metrics_cache: dict[str, dict[str, Any]] = {}
 _gpu_metrics_ts: float = 0.0
 
 
 def _get_cached_device_names() -> tuple[str, list[str]]:
-    global _cached_cpu_name, _cached_gpu_names
-    if _cached_cpu_name is not None and _cached_gpu_names is not None:
+    global _cached_cpu_name, _cached_gpu_names, _device_names_ts
+    # eGPU adapters can be connected after the service starts. Refresh this
+    # lightweight inventory periodically instead of caching it indefinitely.
+    if _cached_cpu_name is not None and _cached_gpu_names is not None and time.time() - _device_names_ts < 10:
         return _cached_cpu_name, _cached_gpu_names
     cpu_name = ""
     gpu_names: list[str] = []
@@ -178,6 +181,7 @@ def _get_cached_device_names() -> tuple[str, list[str]]:
         pass
     _cached_cpu_name = cpu_name
     _cached_gpu_names = gpu_names
+    _device_names_ts = time.time()
     return cpu_name, gpu_names
 
 
@@ -227,6 +231,21 @@ async def system_resources() -> dict[str, Any]:
         def _collect() -> dict[str, Any]:
             cpu_percent = psutil.cpu_percent(interval=0)
             cpu_name, gpu_names = _get_cached_device_names()
+            # WMI occasionally omits an iGPU from the lightweight name query.
+            # Fall back to the same physical-adapter inventory used by the
+            # device picker so the parse dialog never silently hides it.
+            try:
+                from app.core.device_detector import _detect_directml_devices, _detect_torch_devices, _detect_windows_gpus
+                inventory_names = [item.name for item in _detect_windows_gpus()]
+                inventory_names.extend(item.name for item in _detect_torch_devices())
+                inventory_names.extend(item.name for item in _detect_directml_devices())
+                for name in inventory_names:
+                    if name.lower().startswith("directml device"):
+                        continue
+                    if name not in gpu_names:
+                        gpu_names.append(name)
+            except Exception:
+                pass
 
             mem = psutil.virtual_memory()
             mem_used_gb = round(mem.used / (1024 ** 3), 1)
@@ -272,6 +291,21 @@ async def system_resources() -> dict[str, Any]:
             for cuda_name, metrics in cuda_metrics.items():
                 if cuda_name not in used_cuda_keys:
                     gpus.append({"name": cuda_name, **metrics})
+
+            if not gpus:
+                try:
+                    from app.core.device_detector import detect_all_devices
+                    configured = detect_all_devices(get_settings())
+                    for device in configured:
+                        if device.get("type") == "gpu":
+                            gpus.append({"name": device.get("name", "GPU"), "percent": 0.0, "usedGb": 0.0, "totalGb": 0.0})
+                except Exception:
+                    pass
+
+            if not gpus:
+                configured_device = str(getattr(get_settings().embedding, "device", "") or "")
+                if configured_device.startswith(("dml", "cuda", "xpu")):
+                    gpus.append({"name": f"GPU ({configured_device})", "percent": 0.0, "usedGb": 0.0, "totalGb": 0.0})
 
             return {
                 "cpu": {"percent": cpu_percent, "name": cpu_name},
