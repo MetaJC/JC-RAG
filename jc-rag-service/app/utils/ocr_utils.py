@@ -5,9 +5,9 @@ import logging
 import os
 from typing import Any
 
-os.environ.setdefault("OMP_NUM_THREADS", "4")
-os.environ.setdefault("OMP_THREAD_LIMIT", "4")
-os.environ.setdefault("MKL_NUM_THREADS", "4")
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("OMP_THREAD_LIMIT", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +181,8 @@ def ocr_pdf_page_text(file_path: str, page_index: int, render_scale: float = 2.0
         ) from ex
 
     doc = fitz.open(file_path)
+    pixmap = None
+    image_bytes = None
     try:
         page = doc.load_page(page_index)
         matrix = fitz.Matrix(render_scale, render_scale)
@@ -199,4 +201,6 @@ def ocr_pdf_page_text(file_path: str, page_index: int, render_scale: float = 2.0
             result, _ = _ocr_engine(image_bytes)
         return extract_text_from_ocr_result(result, min_score)
     finally:
+        pixmap = None
+        image_bytes = None
         doc.close()

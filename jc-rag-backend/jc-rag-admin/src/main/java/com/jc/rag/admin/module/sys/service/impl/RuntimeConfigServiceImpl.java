@@ -268,7 +268,7 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
                 Map<String, Object> cpu = (Map<String, Object>) raw.get("cpu");
                 vo.setCpu(cpu);
                 @SuppressWarnings("unchecked")
-                List<Map<String, Object>> gpus = (List<Map<String, Object>>) raw.get("gpu");
+                List<Map<String, Object>> gpus = (List<Map<String, Object>>) raw.get("gpus");
                 vo.setGpus(gpus);
                 @SuppressWarnings("unchecked")
                 Map<String, Object> memory = (Map<String, Object>) raw.get("ram");

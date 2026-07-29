@@ -9,6 +9,16 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+def _limit_cpu_threads() -> None:
+    """Bound local embedding CPU usage when it shares a parse with OCR."""
+    try:
+        import torch
+        torch.set_num_threads(min(4, max(1, os.cpu_count() or 1)))
+        torch.set_num_interop_threads(1)
+    except Exception:
+        pass
+
 LM_STUDIO_DEFAULT_URL = "http://localhost:1234"
 
 
@@ -82,6 +92,58 @@ def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
 # Pro 集成场景: Java 端 payload 的 ragOverride.embedding.device 与启动时
 # lifespan 探测的 device 不一致 (例如 dml → cpu), 改用 dict 缓存可彻底规避.
 _model_cache: dict[tuple[str, str], Any] = {}
+_onnx_dml_cache: dict[tuple[str, int], tuple[Any, Any]] = {}
+
+
+def _directml_index(device: str) -> int | None:
+    value = (device or "").lower()
+    for prefix in ("dml:", "privateuseone:"):
+        if value.startswith(prefix):
+            try:
+                return int(value.split(":", 1)[1])
+            except ValueError:
+                return 0
+    return None
+
+
+def _load_onnx_directml(model_path: str, device_index: int) -> tuple[Any, Any]:
+    """Load the exported embedding model through ONNX Runtime DirectML."""
+    cache_key = (model_path, device_index)
+    if cache_key in _onnx_dml_cache:
+        return _onnx_dml_cache[cache_key]
+
+    import onnxruntime as ort
+    from transformers import AutoTokenizer
+
+    onnx_path = Path(model_path) / "onnx" / "model.onnx"
+    if not onnx_path.exists():
+        raise RuntimeError(f"ONNX embedding model is missing: {onnx_path}")
+    session = ort.InferenceSession(
+        str(onnx_path),
+        providers=[("DmlExecutionProvider", {"device_id": device_index}), "CPUExecutionProvider"],
+    )
+    if not session.get_providers() or session.get_providers()[0] != "DmlExecutionProvider":
+        raise RuntimeError(f"DirectML provider was not selected: {session.get_providers()}")
+    tokenizer = AutoTokenizer.from_pretrained(str(Path(model_path) / "onnx"))
+    _onnx_dml_cache[cache_key] = (session, tokenizer)
+    return session, tokenizer
+
+
+def _embed_via_onnx_directml(
+    texts: list[str], model_path: str, device_index: int, normalize: bool
+) -> list[list[float]]:
+    import numpy as np
+
+    session, tokenizer = _load_onnx_directml(model_path, device_index)
+    encoded = tokenizer(texts, padding=True, truncation=True, return_tensors="np")
+    input_names = {item.name for item in session.get_inputs()}
+    inputs = {name: value for name, value in encoded.items() if name in input_names}
+    output = session.run(None, inputs)[0]
+    mask = encoded["attention_mask"].astype(np.float32)[..., None]
+    vectors = (output * mask).sum(axis=1) / np.clip(mask.sum(axis=1), 1e-9, None)
+    if normalize:
+        vectors = vectors / np.clip(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-12, None)
+    return vectors.tolist()
 
 
 def _load_model(model_path: str, device: str):
@@ -93,11 +155,9 @@ def _load_model(model_path: str, device: str):
     if "privateuse" in resolved_device.lower() and os.environ.get("JC_RAG_ALLOW_DIRECTML_EMBEDDING") != "1":
         logger.warning("DirectML embedding disabled after runtime instability; using bounded CPU mode")
         resolved_device = "cpu"
-        try:
-            import torch
-            torch.set_num_threads(min(4, max(1, os.cpu_count() or 1)))
-        except Exception:
-            pass
+        _limit_cpu_threads()
+    elif resolved_device == "cpu":
+        _limit_cpu_threads()
     cache_key = (model_path, resolved_device)
     if cache_key in _model_cache:
         cached = _model_cache[cache_key]
@@ -199,6 +259,7 @@ def _resolve_embedding_override(settings, embedding_override: dict[str, Any] | N
     return {
         "modelPath": model_path,
         "device": device,
+        "requestedDevice": str(override.get("device") or settings.embedding.device or "auto"),
         "dims": dims_value,
         "batchSize": batch_size_value,
         "normalizeEmbeddings": normalize_value,
@@ -244,6 +305,30 @@ def embed_texts(
             },
         )
 
+    dml_index = _directml_index(cfg["requestedDevice"])
+    if dml_index is not None:
+        try:
+            logger.info("Embedding attempting ONNX Runtime DirectML: model=%s device=%s", cfg["modelPath"], dml_index)
+            vectors = _embed_via_onnx_directml(
+                texts, cfg["modelPath"], dml_index, cfg["normalizeEmbeddings"]
+            )
+            cost_ms = int((time.time() - started) * 1000)
+            return (
+                vectors,
+                {
+                    "modelPath": cfg["modelPath"],
+                    "device": f"DirectML GPU ({dml_index})",
+                    "requestedDevice": cfg["requestedDevice"],
+                    "deviceReason": "ONNX Runtime DmlExecutionProvider 已实际执行",
+                    "dims": len(vectors[0]) if vectors else cfg.get("dims", 1024),
+                    "costMs": cost_ms,
+                    "batchSize": cfg["batchSize"],
+                    "normalizeEmbeddings": cfg["normalizeEmbeddings"],
+                },
+            )
+        except Exception as ex:
+            logger.warning("ONNX Runtime DirectML embedding failed; falling back to CPU: %r", ex)
+
     model = _load_model(cfg["modelPath"], cfg["device"])
     try:
         vectors = model.encode(
@@ -265,6 +350,13 @@ def embed_texts(
         {
             "modelPath": cfg["modelPath"],
             "device": str(getattr(model, "device", cfg["device"])),
+            "requestedDevice": cfg["requestedDevice"],
+            "deviceReason": (
+                "ONNX Runtime DirectML 不可用，且 SentenceTransformer DirectML 不稳定，已回退 CPU"
+                if str(getattr(model, "device", "")).lower() == "cpu"
+                and ("privateuse" in cfg["device"].lower() or cfg["device"].lower().startswith("dml"))
+                else "设备按配置可用并已实际执行"
+            ),
             "dims": int(model.get_sentence_embedding_dimension()),
             "costMs": cost_ms,
             "batchSize": cfg["batchSize"],

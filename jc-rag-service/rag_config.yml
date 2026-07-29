@@ -5,7 +5,7 @@ app:
   port: 8001
 
 embedding:
-  model_path: D:\models\embedding\bge-large-zh-v1.5
+  model_path: D:\Users\JC\.jc-rag\models\embedding\bge-large-zh-v1.5
   device: auto
   dims: 1024
   batch_size: 32

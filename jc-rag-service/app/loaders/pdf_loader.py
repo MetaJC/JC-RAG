@@ -28,11 +28,13 @@ class PdfLoader(DocumentLoader):
         
         doc = fitz.open(file_path)
         pages: list[str] = []
+        page_texts: list[str] = []
         page_count = doc.page_count
         
         for page_idx in range(page_count):
             page = doc.load_page(page_idx)
             text = page.get_text()
+            page_texts.append(text)
             
             # 如果文本内容很少，尝试 OCR
             if text.strip():
@@ -45,6 +47,7 @@ class PdfLoader(DocumentLoader):
             'file_type': 'pdf',
             'page_count': page_count,
             'char_count': len(content),
+            'page_texts': page_texts,
         }
         
         return content, meta

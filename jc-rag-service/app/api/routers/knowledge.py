@@ -44,7 +44,7 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
         init_progress,
         update_stage,
     )
-    from app.embeddings import _resolve_device, embed_texts
+    from app.embeddings import _resolve_device, _resolve_embedding_override, embed_texts
     from app.vector_store import get_vector_store as _get_vs
 
     _parse_gate.acquire()
@@ -65,6 +65,24 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
     def _check_cancel():
         if check_cancelled(doc_id):
             raise CancelParseException("用户终止")
+
+    def _ensure_memory_headroom(phase: str) -> None:
+        """Only stop when the OS is near memory exhaustion, not at an arbitrary RSS."""
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            # Do not cap legitimate model/page-cache usage.  This is solely a
+            # last-resort guard against driving Windows into an unrecoverable
+            # paging state.  The 1 GiB floor is intentionally much lower than
+            # normal working headroom, while retaining enough room for the OS.
+            reserve = max(1_000 * 1024 * 1024, int(memory.total * 0.04))
+            if memory.available < reserve:
+                raise RuntimeError(
+                    f"Memory safety stop during {phase}: system available="
+                    f"{memory.available / 1024 / 1024:.0f} MiB (reserve={reserve / 1024 / 1024:.0f} MiB)"
+                )
+        except ImportError:
+            return
 
     try:
         used_device = _resolve_device(getattr(settings.embedding, 'device', 'auto') or 'auto')
@@ -97,10 +115,16 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
             if embedding_override and embedding_override.get("device") and embedding_override.get("device") != "auto":
                 used_device = _resolve_device(str(embedding_override["device"]))
                 device_info = f"手动指定: {used_device}"
+        embedding_config = _resolve_embedding_override(settings, embedding_override)
 
         update_stage(doc_id, "download", "running", 10, "正在初始化向量索引...", "")
         _check_cancel()
         vs = _get_vs()
+        backend_name = str(vs.backend_name() if hasattr(vs, "backend_name") else "").strip()
+        backend_name = {"milvus": "Milvus", "elasticsearch": "Elasticsearch"}.get(
+            backend_name.lower(), backend_name
+        )
+        vector_store_label = f"{backend_name} 向量库" if backend_name else "向量库"
         from app.embeddings import get_embedding_dimension
         dims = get_embedding_dimension(settings, embedding_override)
         vs.ensure_collection(vs.default_collection, dims)
@@ -112,7 +136,7 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
         )
         download_size = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
         update_stage(doc_id, "download", "completed", 100,
-                     f"文档下载完成（{download_size / 1024:.1f} KB），ES 索引已就绪", "")
+                     f"文档下载完成（{download_size / 1024:.1f} KB），{vector_store_label}已就绪", "")
 
         update_stage(doc_id, "extract", "running", 10,
                      f"正在解析 {file_ext.upper()} 文档...",
@@ -163,7 +187,24 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
             complete_progress(doc_id, True, "文档内容为空，无需索引")
             return {"chunkCount": 0, "pageCount": meta.get("page_count", 0) if meta else 0, "message": "文档内容为空，无需索引"}
 
-        has_ocr = "ocr" in stage_ids
+        has_ocr = "ocr" in stage_ids and bool(getattr(settings.ocr, "pdf_fallback", True))
+        page_texts = meta.get("page_texts", []) if meta else []
+        # Do not OCR native-text PDF pages. Rendering every page as a bitmap
+        # was the primary source of unnecessary CPU and memory pressure.
+        min_embedded_text_chars = 24
+        pages_requiring_ocr = {
+            index for index, page_text in enumerate(page_texts)
+            if len(str(page_text or "").strip()) < min_embedded_text_chars
+        }
+        if has_ocr and page_texts and not pages_requiring_ocr:
+            update_stage(doc_id, "ocr", "running", 1,
+                         "正在检查 PDF 文本层与 OCR 需求...", "OCR 预检")
+            update_stage(doc_id, "ocr", "completed", 100,
+                         f"PDF 类型: 含文字层文档 PDF；总页数: {len(page_texts)}；"
+                         f"可直接提取: {len(page_texts)} 页；需 OCR: 0 页；"
+                         "OCR 未执行，计算设备: 不适用（未触发 OCR）",
+                         "PDF 文本层完整；OCR skipped")
+            has_ocr = False
         precomputed_chunks = None
         if has_ocr:
             update_stage(doc_id, "ocr", "running", 5, "正在 OCR 识别扫描内容...",
@@ -173,15 +214,16 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
             page_count = meta.get("page_count", 1) if meta else 1
             ocr_device = get_ocr_execution_device()
             update_stage(doc_id, "ocr", "running", 5,
-                         f"OCR 已选择实际计算设备: {ocr_device}",
-                         f"OCR 实际设备: {ocr_device}")
+                         f"PDF OCR 计划：总页数 {page_count}；可直接提取 {page_count - len(pages_requiring_ocr)} 页；"
+                         f"需 OCR {len(pages_requiring_ocr)} 页；实际计算设备: {ocr_device}",
+                         f"PDF 类型: 混合/扫描 PDF；OCR 实际设备: {ocr_device}")
             ocr_lines = []
             streamed_chunks = []
             stream_batch_start = 0
             stream_queue: queue.Queue[tuple[list[str], int] | None] = queue.Queue(maxsize=1)
             stream_result = {"success": 0, "failed": 0, "chunks": 0, "error": None, "error_detail": ""}
             stream_lock = threading.Lock()
-            batch_size = min(8, getattr(settings.embedding, 'batch_size', 32) or 32)
+            batch_size = embedding_config["batchSize"]
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             embedding_mode = "在线模型服务" if used_device == "lm_studio" else "本地 Embedding 模型"
             embedding_from_override = bool((embedding_override or {}).get("modelPath"))
@@ -196,6 +238,7 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                         item = stream_queue.get()
                         if item is None:
                             break
+                        _ensure_memory_headroom("embedding/index")
                         batch_chunks, source_pct = item
                         for offset in range(0, len(batch_chunks), batch_size):
                             chunk_batch = batch_chunks[offset:offset + batch_size]
@@ -207,7 +250,9 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                                 stream_result["chunks"] += len(chunk_batch)
                                 done = stream_result["chunks"]
                             actual_device = str(embedding_meta.get("device") or device_info)
-                            update_stage(doc_id, "embedding", "running", source_pct, f"向量化进行中：{embedding_mode}；模型: {embedding_model}；来源: {embedding_source}；实际设备: {actual_device}；已完成 {done} 块", f"模型: {embedding_model}; 来源: {embedding_source}; 实际设备: {actual_device}")
+                            device_reason = str(embedding_meta.get("deviceReason") or "")
+                            batch_cost = float(embedding_meta.get("costMs") or 0) / 1000
+                            update_stage(doc_id, "embedding", "running", source_pct, f"向量化进行中：{embedding_mode}；模型: {embedding_model}；请求设备: {embedding_meta.get('requestedDevice', embedding_config['requestedDevice'])}；实际设备: {actual_device}；设备说明: {device_reason}；本批 {len(chunk_batch)} 块耗时 {batch_cost:.1f} 秒；已完成 {done} 块", f"模型: {embedding_model}; 请求设备: {embedding_meta.get('requestedDevice', embedding_config['requestedDevice'])}; 实际设备: {actual_device}; {device_reason}")
                             if pending_docs:
                                 s, f = vs.bulk_index(pending_docs)
                                 with stream_lock:
@@ -237,11 +282,16 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                         _check_cancel()
             for pn in range(page_count):
                 _check_cancel()
-                pg_text = ocr_pdf_page_text(
-                    _temp_file, pn,
-                    render_scale=min(1.5, float(settings.ocr.render_scale)),
-                    min_score=float(settings.ocr.text_score),
-                ) if _temp_file else ""
+                _ensure_memory_headroom(f"OCR page {pn + 1}/{page_count}")
+                embedded_text = str(page_texts[pn] or "") if pn < len(page_texts) else ""
+                if pn in pages_requiring_ocr:
+                    pg_text = ocr_pdf_page_text(
+                        _temp_file, pn,
+                        render_scale=min(1.25, float(settings.ocr.render_scale)),
+                        min_score=float(settings.ocr.text_score),
+                    ) if _temp_file else ""
+                else:
+                    pg_text = embedded_text
                 ocr_device = get_ocr_execution_device()
                 if pg_text:
                     ocr_lines.append(pg_text)
@@ -303,16 +353,16 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
             complete_progress(doc_id, True, "文档切块后为空，无需索引")
             return {"chunkCount": 0, "pageCount": meta.get("page_count", 0) if meta else 0, "message": "文档切块后为空，无需索引"}
 
-        batch_size = getattr(settings.embedding, 'batch_size', 32) or 32
+        batch_size = embedding_config["batchSize"]
         chunks_list = list(chunks)
         now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         total_emb_batches = max(1, (total_chunks + batch_size - 1) // batch_size)
 
         update_stage(doc_id, "embedding", "running", 0,
-                     f"正在生成向量嵌入，共 {total_chunks} 个块，每批 {batch_size} 个",
-                     f"计算设备: {device_info}")
+                     f"正在生成向量嵌入，共 {total_chunks} 个块，每批 {batch_size} 个（配置值 {getattr(settings.embedding, 'batch_size', batch_size)}，按本地模型稳定性取有效值）",
+                     f"请求设备: {embedding_config['requestedDevice']}；等待确认实际执行设备")
         update_stage(doc_id, "es_index", "running", 0,
-                     "等待向量数据就绪后写入 ES 索引...", "")
+                     f"等待向量数据就绪后写入{vector_store_label}...", "")
         _check_cancel()
 
         es_batch = 200
@@ -323,9 +373,10 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
         for batch_idx in range(0, total_chunks, batch_size):
             _check_cancel()
+            _ensure_memory_headroom("embedding/index")
             batch_end = min(batch_idx + batch_size, total_chunks)
             batch = chunks_list[batch_idx:batch_end]
-            vecs, _ = embed_texts(batch, settings, embedding_override)
+            vecs, embedding_meta = embed_texts(batch, settings, embedding_override)
             emb_done += len(batch)
 
             for i, (chunk_text, vec) in enumerate(zip(batch, vecs)):
@@ -346,9 +397,12 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                 })
 
             emb_pct = min(99, int(emb_done / total_chunks * 100))
+            actual_device = str(embedding_meta.get("device") or device_info)
+            device_reason = str(embedding_meta.get("deviceReason") or "")
+            batch_cost = float(embedding_meta.get("costMs") or 0) / 1000
             update_stage(doc_id, "embedding", "running", emb_pct,
-                         f"向量嵌入中... 已完成 {emb_done}/{total_chunks} 个块",
-                         f"计算设备: {device_info}")
+                         f"向量嵌入中... 已完成 {emb_done}/{total_chunks} 个块；本批 {len(batch)} 块耗时 {batch_cost:.1f} 秒；请求设备: {embedding_meta.get('requestedDevice', embedding_config['requestedDevice'])}；实际设备: {actual_device}；设备说明: {device_reason}",
+                         f"请求设备: {embedding_meta.get('requestedDevice', embedding_config['requestedDevice'])}; 实际设备: {actual_device}; {device_reason}")
 
             if len(pending_docs) >= es_batch or emb_done >= total_chunks:
                 _check_cancel()
@@ -376,10 +430,10 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
         if failed_total > 0:
             update_stage(doc_id, "es_index", "completed", 90,
-                         f"ES 索引写入完成，成功: {success_total}，失败: {failed_total}", "")
+                         f"{vector_store_label}写入完成，成功: {success_total}，失败: {failed_total}", "")
         else:
             update_stage(doc_id, "es_index", "completed", 100,
-                         f"ES 索引写入完成，共 {success_total} 条记录", "")
+                         f"{vector_store_label}写入完成，共 {success_total} 条记录", "")
 
         logger.info("knowledge_parse done: doc=%s kb=%s chunks=%d success=%d failed=%d cost=%ss",
                      doc_id, kb_id, total_chunks, success_total, failed_total, cost)

@@ -144,6 +144,8 @@ _cached_gpu_names: list[str] | None = None
 _device_names_ts: float = 0.0
 _gpu_metrics_cache: dict[str, dict[str, Any]] = {}
 _gpu_metrics_ts: float = 0.0
+_windows_gpu_metrics_cache: list[dict[str, Any]] = []
+_windows_gpu_metrics_ts: float = 0.0
 
 
 def _get_cached_device_names() -> tuple[str, list[str]]:
@@ -222,6 +224,59 @@ def _query_gpu_metrics_nvidia_smi() -> dict[str, dict[str, Any]]:
     return result
 
 
+def _query_gpu_metrics_windows() -> list[dict[str, Any]]:
+    """Read Intel/AMD/NVIDIA utilization from Windows GPU Engine counters."""
+    global _windows_gpu_metrics_cache, _windows_gpu_metrics_ts
+    now = time.time()
+    if now - _windows_gpu_metrics_ts < 2.0 and _windows_gpu_metrics_cache:
+        return _windows_gpu_metrics_cache
+    if platform.system() != "Windows":
+        return []
+    result: list[dict[str, Any]] = []
+    try:
+        import re
+        import subprocess
+        command = (
+            "$s=(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction Stop).CounterSamples;"
+            "$s | ForEach-Object { \"$($_.InstanceName)`t$($_.CookedValue)\" }"
+        )
+        output = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", command], text=True, timeout=8
+        )
+        # Task Manager reports the busiest engine. Sum processes per engine,
+        # then take the busiest engine for each physical adapter/LUID.
+        by_adapter: dict[str, dict[str, float]] = {}
+        pattern = re.compile(
+            r"luid_(0x[0-9a-f]+)_(0x[0-9a-f]+)_phys_(\d+)_eng_\d+_engtype_([^\t]+)", re.I
+        )
+        for line in output.splitlines():
+            if "\t" not in line:
+                continue
+            instance, raw_value = line.rsplit("\t", 1)
+            match = pattern.search(instance)
+            if not match:
+                continue
+            adapter_key = f"{match.group(1)}:{match.group(2)}:{match.group(3)}"
+            engine = match.group(4).lower()
+            try:
+                value = max(0.0, float(raw_value.strip()))
+            except ValueError:
+                continue
+            engines = by_adapter.setdefault(adapter_key, {})
+            engines[engine] = engines.get(engine, 0.0) + value
+        for adapter_key in sorted(by_adapter):
+            engines = by_adapter[adapter_key]
+            result.append({
+                "adapterKey": adapter_key,
+                "percent": round(min(100.0, max(engines.values(), default=0.0)), 1),
+            })
+    except Exception as ex:
+        logger.debug("Windows GPU performance counter unavailable: %s", ex)
+    _windows_gpu_metrics_cache = result
+    _windows_gpu_metrics_ts = now
+    return result
+
+
 @router.get("/system/resources")
 async def system_resources() -> dict[str, Any]:
     import asyncio
@@ -252,6 +307,7 @@ async def system_resources() -> dict[str, Any]:
             mem_total_gb = round(mem.total / (1024 ** 3), 1)
 
             cuda_metrics = _query_gpu_metrics_nvidia_smi()
+            windows_metrics = _query_gpu_metrics_windows()
 
             def _names_overlap(a: str, b: str) -> bool:
                 al = a.lower().strip()
@@ -274,7 +330,7 @@ async def system_resources() -> dict[str, Any]:
 
             gpus: list[dict[str, Any]] = []
             used_cuda_keys: set[str] = set()
-            for gpu_name in gpu_names:
+            for gpu_index, gpu_name in enumerate(gpu_names):
                 matched_cuda: dict[str, dict[str, Any]] | None = None
                 for cuda_name, metrics in cuda_metrics.items():
                     if cuda_name in used_cuda_keys:
@@ -286,7 +342,8 @@ async def system_resources() -> dict[str, Any]:
                 if matched_cuda:
                     gpus.append({"name": gpu_name, **matched_cuda})
                 else:
-                    gpus.append({"name": gpu_name, "percent": 0.0, "usedGb": 0.0, "totalGb": 0.0})
+                    windows_metric = windows_metrics[gpu_index] if gpu_index < len(windows_metrics) else {}
+                    gpus.append({"name": gpu_name, "percent": windows_metric.get("percent", 0.0), "usedGb": 0.0, "totalGb": 0.0})
 
             for cuda_name, metrics in cuda_metrics.items():
                 if cuda_name not in used_cuda_keys:
@@ -296,9 +353,10 @@ async def system_resources() -> dict[str, Any]:
                 try:
                     from app.core.device_detector import detect_all_devices
                     configured = detect_all_devices(get_settings())
-                    for device in configured:
+                    for gpu_index, device in enumerate(configured):
                         if device.get("type") == "gpu":
-                            gpus.append({"name": device.get("name", "GPU"), "percent": 0.0, "usedGb": 0.0, "totalGb": 0.0})
+                            metric = windows_metrics[gpu_index] if gpu_index < len(windows_metrics) else {}
+                            gpus.append({"name": device.get("name", "GPU"), "percent": metric.get("percent", 0.0), "usedGb": 0.0, "totalGb": 0.0})
                 except Exception:
                     pass
 

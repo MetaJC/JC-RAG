@@ -50,6 +50,7 @@ export const useSystemStore = defineStore('system', () => {
 
   const devices = ref<DeviceItem[]>([])
   const devicesLoading = ref(false)
+  const devicesLoaded = ref(false)
 
   const modelVerifyStatus = ref<'success' | 'error' | 'loading' | ''>('')
   const modelVerifyMessage = ref('')
@@ -172,6 +173,7 @@ export const useSystemStore = defineStore('system', () => {
       devices.value = [{ id: 'auto', name: 'Auto（自动选择最优设备）', type: 'other', performanceRank: 999, available: true, detail: '设备检测失败，仅 Auto 可用' }]
     } finally {
       devicesLoading.value = false
+      devicesLoaded.value = true
     }
   }
 
@@ -255,6 +257,7 @@ export const useSystemStore = defineStore('system', () => {
     runtimeConfig,
     devices,
     devicesLoading,
+    devicesLoaded,
     modelVerifyStatus,
     modelVerifyMessage,
     browseVisible,

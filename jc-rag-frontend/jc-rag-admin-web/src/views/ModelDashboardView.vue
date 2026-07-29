@@ -4,11 +4,19 @@ import { useSystemStore } from '../stores/system'
 
 const systemStore = useSystemStore()
 const config = computed(() => systemStore.runtimeConfig)
+const embeddingDeviceLabel = computed(() => {
+  if (!systemStore.devicesLoaded) return '正在获取设备信息...'
+  const id = config.value?.rag.embedding.device
+  if (!id) return '-'
+  return systemStore.devices.find((device) => device.id === id)?.name || '设备信息不可用'
+})
 const activeModel = computed(() => config.value?.model.activeMode === 'online'
   ? config.value.model.online.modelName || '未选择'
   : config.value?.model.offline.ollama.defaultModel || '未选择')
 
-onMounted(() => void systemStore.loadRuntimeConfig(false))
+onMounted(async () => {
+  await Promise.all([systemStore.loadRuntimeConfig(false), systemStore.refreshDevices()])
+})
 </script>
 
 <template>
@@ -17,7 +25,7 @@ onMounted(() => void systemStore.loadRuntimeConfig(false))
     <section class="summary-grid">
       <el-card shadow="never"><el-statistic title="当前模式" :value="config?.model.activeMode === 'online' ? '在线模型' : '离线模型'" /></el-card>
       <el-card shadow="never"><el-statistic title="主模型" :value="activeModel" /></el-card>
-      <el-card shadow="never"><el-statistic title="Embedding 设备" :value="config?.rag.embedding.device || '-'" /></el-card>
+      <el-card shadow="never" v-loading="!systemStore.devicesLoaded"><el-statistic title="Embedding 设备" :value="embeddingDeviceLabel" /></el-card>
       <el-card shadow="never"><el-statistic title="向量维度" :value="config?.rag.embedding.dims || 0" /></el-card>
     </section>
     <section class="detail-grid">

@@ -16,6 +16,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _clean_device_text(value: Any) -> str:
+    """Drivers occasionally return trailing NUL/control characters in names."""
+    text = str(value or "")
+    return " ".join("".join(char for char in text if char.isprintable()).split())
+
+
 @dataclass
 class DeviceInfo:
     id: str
@@ -101,7 +107,7 @@ def _detect_windows_gpus() -> list[DeviceInfo]:
                 data = [data]
             seen_names = set()
             for idx, gpu in enumerate(data):
-                name = (gpu.get("Name") or "").strip()
+                name = _clean_device_text(gpu.get("Name"))
                 if not name or name in seen_names:
                     continue
                 name_lower = name.lower()
@@ -151,7 +157,7 @@ def _detect_directml_devices() -> list[DeviceInfo]:
     try:
         count = torch_directml.device_count()
         for i in range(count):
-            name = torch_directml.device_name(i) if hasattr(torch_directml, 'device_name') else f"DirectML Device {i}"
+            name = _clean_device_text(torch_directml.device_name(i)) if hasattr(torch_directml, 'device_name') else f"DirectML Device {i}"
             devices.append(DeviceInfo(
                 id=f"dml:{i}", name=name, type="gpu",
                 performance_rank=8, available=True,
@@ -171,7 +177,7 @@ def _detect_torch_devices() -> list[DeviceInfo]:
             count = torch.cuda.device_count()
             for i in range(count):
                 try:
-                    name = torch.cuda.get_device_name(i)
+                    name = _clean_device_text(torch.cuda.get_device_name(i))
                     props = torch.cuda.get_device_properties(i)
                     mem_gb = props.total_memory / (1024**3)
                     detail = f"CUDA {i}: {name} ({mem_gb:.1f} GB)"
