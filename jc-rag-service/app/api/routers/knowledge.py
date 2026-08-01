@@ -38,13 +38,19 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
     from app.api.deps import _resolve_cpu_info
     from app.core.config import get_settings
     from app.core.parse_progress import (
+        append_log,
         check_cancelled,
         complete_progress,
         get_stage_ids,
         init_progress,
         update_stage,
     )
-    from app.embeddings import _resolve_device, _resolve_embedding_override, embed_texts
+    from app.embeddings import (
+        _resolve_device,
+        _resolve_device_model_name,
+        _resolve_embedding_override,
+        embed_texts,
+    )
     from app.vector_store import get_vector_store as _get_vs
 
     _parse_gate.acquire()
@@ -86,35 +92,21 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
     try:
         used_device = _resolve_device(getattr(settings.embedding, 'device', 'auto') or 'auto')
-        if used_device == "cpu":
-            device_info = _resolve_cpu_info()
-        elif used_device == "dml":
-            try:
-                import torch_directml
-                device_info = f"DirectML ({torch_directml.device_name(0)})"
-            except Exception:
-                device_info = "DirectML"
-        elif used_device == "cuda":
-            try:
-                import torch
-                device_info = f"CUDA ({torch.cuda.get_device_name(0)})"
-            except Exception:
-                device_info = "CUDA"
-        else:
-            device_info = used_device
-
-        model_path = getattr(settings.embedding, 'model_path', '') or "未配置"
-        update_stage(doc_id, "download", "running", 5,
-                     f"自动选择计算设备: {device_info}，Embedding 模型: {model_path}",
-                     "")
-        _check_cancel()
+        device_info = _resolve_device_model_name(used_device)
 
         embedding_override = None
         if request.ragOverride and request.ragOverride.embedding:
             embedding_override = request.ragOverride.embedding.model_dump(exclude_none=True)
             if embedding_override and embedding_override.get("device") and embedding_override.get("device") != "auto":
                 used_device = _resolve_device(str(embedding_override["device"]))
-                device_info = f"手动指定: {used_device}"
+                device_info = f"手动指定: {_resolve_device_model_name(used_device)}"
+
+        model_path = getattr(settings.embedding, 'model_path', '') or "未配置"
+        update_stage(doc_id, "download", "running", 5,
+                     f"自动选择计算设备: {device_info}，Embedding 模型: {model_path}",
+                     f"设备: {device_info}，模型: {model_path}")
+        _check_cancel()
+
         embedding_config = _resolve_embedding_override(settings, embedding_override)
 
         update_stage(doc_id, "download", "running", 10, "正在初始化向量索引...", "")
@@ -360,7 +352,7 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
 
         update_stage(doc_id, "embedding", "running", 0,
                      f"正在生成向量嵌入，共 {total_chunks} 个块，每批 {batch_size} 个（配置值 {getattr(settings.embedding, 'batch_size', batch_size)}，按本地模型稳定性取有效值）",
-                     f"请求设备: {embedding_config['requestedDevice']}；等待确认实际执行设备")
+                     f"设备: {device_info}；等待实际执行确认")
         update_stage(doc_id, "es_index", "running", 0,
                      f"等待向量数据就绪后写入{vector_store_label}...", "")
         _check_cancel()
@@ -370,6 +362,9 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
         success_total = 0
         failed_total = 0
         emb_done = 0
+        # 设备信息只在首次批次输出一次，后续批次省略
+        device_info_emitted = False
+        first_device_label = ""
 
         for batch_idx in range(0, total_chunks, batch_size):
             _check_cancel()
@@ -397,12 +392,20 @@ def knowledge_parse(request: KnowledgeParseRequest) -> dict:
                 })
 
             emb_pct = min(99, int(emb_done / total_chunks * 100))
-            actual_device = str(embedding_meta.get("device") or device_info)
-            device_reason = str(embedding_meta.get("deviceReason") or "")
+            device_model = str(embedding_meta.get("deviceName") or "")
             batch_cost = float(embedding_meta.get("costMs") or 0) / 1000
-            update_stage(doc_id, "embedding", "running", emb_pct,
-                         f"向量嵌入中... 已完成 {emb_done}/{total_chunks} 个块；本批 {len(batch)} 块耗时 {batch_cost:.1f} 秒；请求设备: {embedding_meta.get('requestedDevice', embedding_config['requestedDevice'])}；实际设备: {actual_device}；设备说明: {device_reason}",
-                         f"请求设备: {embedding_meta.get('requestedDevice', embedding_config['requestedDevice'])}; 实际设备: {actual_device}; {device_reason}")
+            # 设备信息只在首批次独立一行输出（不混入进度消息）
+            if not device_info_emitted:
+                device_reason = str(embedding_meta.get("deviceReason") or "")
+                first_device_label = device_model if device_model else str(embedding_meta.get("device") or device_info)
+                append_log(doc_id, "embedding", "info",
+                           f"设备: {first_device_label}；{device_reason}")
+                device_info_emitted = True
+            # 进度消息（每次都显示，不含设备信息）
+            stage_msg = (f"向量嵌入中... 已完成 {emb_done}/{total_chunks} 个块；"
+                         f"本批 {len(batch)} 块耗时 {batch_cost:.1f} 秒")
+            stage_detail = f"设备: {first_device_label}" if first_device_label else ""
+            update_stage(doc_id, "embedding", "running", emb_pct, stage_msg, stage_detail)
 
             if len(pending_docs) >= es_batch or emb_done >= total_chunks:
                 _check_cancel()

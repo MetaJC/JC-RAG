@@ -974,6 +974,9 @@ async function fetchParseProgressData(documentId: number) {
   try {
     const data = await fetchDocumentParseProgress(documentId)
     const prevProgress = parseProgress.value
+    // 在更新数据前记录用户是否处于底部，避免新数据撑高容器后误判
+    const elBefore = parseLogsBodyRef.value
+    const wasAtBottom = !elBefore || (elBefore.scrollHeight - elBefore.scrollTop - elBefore.clientHeight) < 40
     parseProgress.value = data
     const stages = data.stages || []
     if (stages.length === 0) return
@@ -983,10 +986,13 @@ async function fetchParseProgressData(documentId: number) {
       selectedStageId.value = autoTarget
       userManualSelected.value = false
     }
-    nextTick(() => {
-      const el = parseLogsBodyRef.value
-      if (el) el.scrollTop = el.scrollHeight
-    })
+    // 仅当用户原本就在底部时才自动滚动，避免打断用户向上查看历史日志
+    if (wasAtBottom) {
+      nextTick(() => {
+        const el = parseLogsBodyRef.value
+        if (el) el.scrollTop = el.scrollHeight
+      })
+    }
   } catch {
   }
 }

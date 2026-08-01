@@ -44,14 +44,26 @@ def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
     value = (device or "").strip().lower()
     if value and value != "auto":
         if value.startswith("dml:"):
+            # 优先用 torch_directml (与 SentenceTransformer 原生集成)
             try:
                 import torch
                 import torch_directml
                 dml_device = torch_directml.device(int(value.split(":", 1)[1]))
                 torch.zeros(1, device=dml_device)
+                logger.info("Embedding DirectML 设备通过 torch_directml 验证: %s", dml_device)
                 return str(dml_device)
-            except Exception as ex:
-                raise RuntimeError(f"Selected DirectML GPU is unavailable: {ex}") from ex
+            except Exception as torch_dml_ex:
+                logger.warning("torch_directml 不可用 (%s), 尝试 onnxruntime-directml", torch_dml_ex)
+            # 备选: onnxruntime-directml (不依赖 torch_directml, 兼容 torch 2.7+)
+            try:
+                import onnxruntime as ort
+                providers = ort.get_available_providers()
+                if 'DmlExecutionProvider' in providers:
+                    logger.info("Embedding DirectML 设备通过 onnxruntime-directml 验证: %s", value)
+                    return value
+                raise RuntimeError(f"onnxruntime-directml 也不可用: {providers}")
+            except Exception as ort_ex:
+                raise RuntimeError(f"Selected DirectML GPU is unavailable: {ort_ex}") from ort_ex
         if value.startswith("cuda:"):
             try:
                 import torch
@@ -70,15 +82,23 @@ def _resolve_device(device: str, lm_studio_url: str | None = None) -> str:
             return "cuda"
     except Exception:
         pass
+    # torch_directml 路径
     try:
         import torch_directml
-        # 验证 DirectML backend 真实可用 (0.2.5.dev240914 + torch 2.4.1 可能未注册 torch.privateuseone 模块)
         dml_dev = torch_directml.device()
         torch.zeros(1, device=dml_dev)
-        logger.info("Embedding 启用 DirectML GPU 加速: %s", dml_dev)
+        logger.info("Embedding 启用 DirectML GPU 加速 (torch_directml): %s", dml_dev)
         return str(dml_dev)
     except Exception as ex:
-        logger.warning("DirectML backend 不可用, fallback 到 CPU: %s", ex)
+        logger.info("torch_directml 不可用, 尝试 onnxruntime-directml: %s", ex)
+    # onnxruntime-directml 备选路径
+    try:
+        import onnxruntime as ort
+        if 'DmlExecutionProvider' in ort.get_available_providers():
+            logger.info("Embedding 启用 DirectML GPU 加速 (onnxruntime-directml)")
+            return "dml:0"
+    except Exception as ex:
+        logger.info("onnxruntime-directml 也不可用: %s", ex)
     if _check_lm_studio_available(lm_studio_url):
         logger.info("Embedding 使用 LM Studio API（Intel Arc GPU 加速）")
         return "lm_studio"
@@ -104,6 +124,57 @@ def _directml_index(device: str) -> int | None:
             except ValueError:
                 return 0
     return None
+
+
+def _resolve_device_model_name(resolved_device: str) -> str:
+    """根据设备ID返回设备型号名（供日志显示）。"""
+    dev = (resolved_device or "").lower()
+    # CUDA
+    if dev.startswith("cuda"):
+        try:
+            import torch
+            idx = 0
+            if ":" in dev:
+                idx = int(dev.split(":", 1)[1])
+            if torch.cuda.is_available() and idx < torch.cuda.device_count():
+                return torch.cuda.get_device_name(idx)
+        except Exception:
+            pass
+        return "NVIDIA CUDA GPU"
+    # DirectML
+    if dev.startswith("dml") or "privateuse" in dev:
+        try:
+            dml_idx = _directml_index(dev) or 0
+            # 优先从 device_detector 获取名称
+            from app.core.device_detector import _detect_windows_gpus
+            win_gpus = _detect_windows_gpus()
+            if win_gpus and dml_idx < len(win_gpus):
+                return win_gpus[dml_idx].name
+        except Exception:
+            pass
+        try:
+            import torch_directml
+            return torch_directml.device_name(dml_idx)
+        except Exception:
+            pass
+        try:
+            import onnxruntime as ort
+            if 'DmlExecutionProvider' in ort.get_available_providers():
+                return "DirectML 加速 GPU"
+        except Exception:
+            pass
+        return "DirectML GPU"
+    # CPU
+    if dev == "cpu":
+        try:
+            from app.core.device_detector import _resolve_cpu_name
+            return _resolve_cpu_name()
+        except Exception:
+            return "CPU"
+    # LM Studio
+    if dev == "lm_studio":
+        return "LM Studio API"
+    return resolved_device or "unknown"
 
 
 def _load_onnx_directml(model_path: str, device_index: int) -> tuple[Any, Any]:
@@ -135,9 +206,15 @@ def _embed_via_onnx_directml(
     import numpy as np
 
     session, tokenizer = _load_onnx_directml(model_path, device_index)
-    encoded = tokenizer(texts, padding=True, truncation=True, return_tensors="np")
+    encoded = tokenizer(texts, padding=True, truncation=True, max_length=512, return_tensors="np")
     input_names = {item.name for item in session.get_inputs()}
-    inputs = {name: value for name, value in encoded.items() if name in input_names}
+    # ONNX 要求 int64 (Long), tokenizer 默认返回 int32 (Int), 需要转换
+    inputs = {}
+    for name, value in encoded.items():
+        if name in input_names:
+            if value.dtype != np.int64:
+                value = value.astype(np.int64)
+            inputs[name] = value
     output = session.run(None, inputs)[0]
     mask = encoded["attention_mask"].astype(np.float32)[..., None]
     vectors = (output * mask).sum(axis=1) / np.clip(mask.sum(axis=1), 1e-9, None)
@@ -305,19 +382,22 @@ def embed_texts(
             },
         )
 
-    dml_index = _directml_index(cfg["requestedDevice"])
-    if dml_index is not None:
+    dml_index = _directml_index(cfg["device"])
+    was_dml = dml_index is not None
+    if was_dml:
         try:
             logger.info("Embedding attempting ONNX Runtime DirectML: model=%s device=%s", cfg["modelPath"], dml_index)
             vectors = _embed_via_onnx_directml(
                 texts, cfg["modelPath"], dml_index, cfg["normalizeEmbeddings"]
             )
             cost_ms = int((time.time() - started) * 1000)
+            device_name = _resolve_device_model_name(f"dml:{dml_index}")
             return (
                 vectors,
                 {
                     "modelPath": cfg["modelPath"],
                     "device": f"DirectML GPU ({dml_index})",
+                    "deviceName": device_name,
                     "requestedDevice": cfg["requestedDevice"],
                     "deviceReason": "ONNX Runtime DmlExecutionProvider 已实际执行",
                     "dims": len(vectors[0]) if vectors else cfg.get("dims", 1024),
@@ -328,6 +408,7 @@ def embed_texts(
             )
         except Exception as ex:
             logger.warning("ONNX Runtime DirectML embedding failed; falling back to CPU: %r", ex)
+            cfg["device"] = "cpu"
 
     model = _load_model(cfg["modelPath"], cfg["device"])
     try:
@@ -345,16 +426,18 @@ def embed_texts(
         model = _load_model(cfg["modelPath"], "cpu")
         vectors = model.encode(texts, normalize_embeddings=cfg["normalizeEmbeddings"], batch_size=cfg["batchSize"], show_progress_bar=False)
     cost_ms = int((time.time() - started) * 1000)
+    actual_device = str(getattr(model, "device", cfg["device"]))
+    device_name = _resolve_device_model_name(actual_device)
     return (
         [vec.tolist() for vec in vectors],
         {
             "modelPath": cfg["modelPath"],
-            "device": str(getattr(model, "device", cfg["device"])),
+            "device": actual_device,
+            "deviceName": device_name,
             "requestedDevice": cfg["requestedDevice"],
             "deviceReason": (
                 "ONNX Runtime DirectML 不可用，且 SentenceTransformer DirectML 不稳定，已回退 CPU"
-                if str(getattr(model, "device", "")).lower() == "cpu"
-                and ("privateuse" in cfg["device"].lower() or cfg["device"].lower().startswith("dml"))
+                if actual_device.lower() == "cpu" and was_dml
                 else "设备按配置可用并已实际执行"
             ),
             "dims": int(model.get_sentence_embedding_dimension()),

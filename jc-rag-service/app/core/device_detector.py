@@ -142,19 +142,7 @@ def _detect_directml_devices() -> list[DeviceInfo]:
     devices: list[DeviceInfo] = []
     try:
         import torch_directml
-    except ImportError:
-        logger.debug("torch-directml not installed")
-        return devices
-    except Exception as e:
-        logger.warning(f"torch-directml 导入失败（版本不兼容？）: {e}")
-        devices.append(DeviceInfo(
-            id="dml:error", name="DirectML（不可用）", type="gpu",
-            performance_rank=200, available=False,
-            detail=f"torch-directml 已安装但导入失败，请升级至与 PyTorch 匹配的版本: {e}"
-        ))
-        return devices
 
-    try:
         count = torch_directml.device_count()
         for i in range(count):
             name = _clean_device_text(torch_directml.device_name(i)) if hasattr(torch_directml, 'device_name') else f"DirectML Device {i}"
@@ -163,8 +151,49 @@ def _detect_directml_devices() -> list[DeviceInfo]:
                 performance_rank=8, available=True,
                 detail=f"DirectML {i}: {name}"
             ))
+        return devices
+    except ImportError:
+        logger.info("torch-directml not installed, 尝试 onnxruntime-directml 备选路径")
     except Exception as e:
-        logger.warning(f"DirectML device enum failed: {e}")
+        logger.warning(f"torch-directml 导入失败（版本不兼容？）: {e}, 尝试 onnxruntime-directml 备选路径")
+
+    # 备选路径: onnxruntime-directml 不依赖 torch-directml, 兼容 torch 2.7+
+    try:
+        import onnxruntime as ort
+        providers = ort.get_available_providers()
+        if 'DmlExecutionProvider' not in providers:
+            logger.info("onnxruntime-directml 不可用, 跳过 DirectML 设备")
+            return devices
+
+        logger.info("通过 onnxruntime-directml 枚举 DirectML 设备")
+        # 用 WMI 枚举物理 GPU, 排除已被 CUDA 识别的 NVIDIA GPU
+        win_gpus = _detect_windows_gpus()
+        cuda_keywords = ['nvidia', 'rtx', 'gtx', 'quadro', 'tesla']
+        dml_candidates = [
+            g for g in win_gpus
+            if not any(k in g.name.lower() for k in cuda_keywords)
+        ]
+        # 也包括 NVIDIA GPU (当 CUDA 不可用时可通过 DirectML 使用)
+        # 但优先级低于 CUDA, 放在列表末尾
+        for i, g in enumerate(dml_candidates):
+            devices.append(DeviceInfo(
+                id=f"dml:{i}", name=f"DirectML Device {i}", type="gpu",
+                performance_rank=8, available=True,
+                detail=f"DirectML {i} (onnxruntime): {g.name}"
+            ))
+        if not dml_candidates:
+            # 无 Intel/AMD GPU, 但 onnxruntime-directml 可用, 至少注册一个 dml:0
+            # 用于 CUDA 不可用时的回退
+            for i, g in enumerate(win_gpus):
+                devices.append(DeviceInfo(
+                    id=f"dml:{i}", name=f"DirectML Device {i}", type="gpu",
+                    performance_rank=8, available=True,
+                    detail=f"DirectML {i} (onnxruntime): {g.name}"
+                ))
+                break
+    except Exception as e:
+        logger.warning(f"onnxruntime-directml 枚举失败: {e}")
+
     return devices
 
 
