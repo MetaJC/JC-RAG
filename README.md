@@ -118,6 +118,8 @@ python main.py
 
 商业合作: jc-rag@example.com
 
+> 产品线规划为社区版 / 专业版 (Pro) / 企业版 (Enterprise) 三个版本, 功能划分见 [三版本功能规划矩阵](../jc-rag-pro/jc-rag-pro-docs/roadmap/edition-feature-matrix.md)。
+
 ## 贡献
 
 欢迎提交 Issue 和 PR. 提交前请确保:

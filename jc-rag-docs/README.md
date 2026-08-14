@@ -79,6 +79,7 @@ docs/
 | 知识库解析流水线 | `architecture/knowledge-parse-pipeline.md` |
 | 商业版怎么集成 | `architecture/pro-repository.md` |
 | 商业版 vs 社区版数据库同步 | `architecture/monorepo-edition.md` + [商业版同步规范](../jc-rag-pro/jc-rag-pro-docs/edition/community-to-pro-sync.md) |
+| 三版本 (社区版/Pro/企业版) 功能划分 | [三版本功能规划矩阵](../../jc-rag-pro/jc-rag-pro-docs/roadmap/edition-feature-matrix.md) |
 | 怎么部署 | `ops/deployment.md` |
 | 怎么发布 | `ops/release.md` / `ops/release-guide.md` |
 | 怎么拆出公开仓 | `edition/migration-guide.md` / `edition/subtree-guide.md` |
