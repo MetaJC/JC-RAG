@@ -171,6 +171,8 @@ export interface ModelProviderConfig {
   enabled: number | boolean
   priorityNo: number
   apiKeyConfigured: boolean
+  /** API Key 脱敏展示值 (首尾各 4 位, 仅供展示, 不得回填保存) */
+  apiKeyMasked?: string
 }
 
 export async function fetchModelProviders(): Promise<ModelProviderConfig[]> {

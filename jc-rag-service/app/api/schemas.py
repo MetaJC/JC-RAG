@@ -17,6 +17,8 @@ class RagEmbeddingOverride(BaseModel):
     dims: int | None = Field(default=None, description="向量维度")
     batchSize: int | None = Field(default=None, description="编码 batch size")
     normalizeEmbeddings: bool | None = Field(default=None, description="是否归一化")
+    source: str | None = Field(default=None, description="Embedding 来源: local/service")
+    service: dict[str, Any] | None = Field(default=None, description="在线 Embedding 服务配置 (provider/modelName/dims/baseUrl/apiKey)")
 
 
 class RagRetrievalOverride(BaseModel):

@@ -52,6 +52,10 @@
 
 读取优先级: TTL 内远程缓存 &gt; 远程拉取 &gt; 过期缓存 &gt; 内置目录。Embedding 来源 (local/service) 持久化在 sys_config `rag.embedding.source` 与 `rag.embedding.service.*`, Java 端通过 `buildRagOverrideForPython()` 下发给 Python, 在线模式走 OpenAI 兼容 `/embeddings` 接口。
 
+### 模型仪表盘生效模型展示规则
+
+`ModelDashboardView` 按类别每行展示当前生效模型 (社区版固定两行: 对话模型 / 嵌入模型), 服务商与模型名称拆分为独立字段。每类模型仅有一个生效配置, 三选一互斥: 在线模型服务 (按 `model.online.baseUrl` 反查 `llm_provider_config` 取服务商展示名) / 本地模型服务 (对话固定 Ollama) / 本地下载模型代码直调 (当前仅嵌入模型支持, 服务商列显示"本地模型")。图像生成、视频生成等多模态模型类别为商业版/企业版功能, 社区版不展示。
+
 ## rag 模块
 
 ### Controller

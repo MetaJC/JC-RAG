@@ -140,11 +140,16 @@ public class KnowledgeBaseController {
     public void downloadDocument(@PathVariable Long documentId, HttpServletResponse response) {
         DocFileInfoVO fileInfo = knowledgeBaseService.getDocumentFileInfo(documentId);
         String contentType = fileInfo.getContentType() == null ? "application/octet-stream" : fileInfo.getContentType();
-        String fileName = fileInfo.getFileName();
+        String fileName = fileInfo.getFileName() == null ? ("doc-" + documentId) : fileInfo.getFileName();
 
         response.setContentType(contentType);
+        if (fileInfo.getFileSize() != null && fileInfo.getFileSize() > 0) {
+            response.setContentLengthLong(fileInfo.getFileSize());
+        }
+        // RFC 5987 filename* 需百分号编码; URLEncoder 会把空格编成 '+', 需替换为 %20
+        String encoded = URLEncoder.encode(fileName, StandardCharsets.UTF_8).replace("+", "%20");
         response.setHeader("Content-Disposition",
-            "inline; filename*=UTF-8''" + URLEncoder.encode(fileName, StandardCharsets.UTF_8));
+            "attachment; filename=\"" + fileName.replace("\"", "'") + "\"; filename*=UTF-8''" + encoded);
 
         try (InputStream stream = fileInfo.getStream();
              OutputStream out = response.getOutputStream()) {

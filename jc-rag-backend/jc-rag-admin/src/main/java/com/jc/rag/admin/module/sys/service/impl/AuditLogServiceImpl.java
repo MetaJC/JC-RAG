@@ -80,6 +80,18 @@ public class AuditLogServiceImpl implements AuditLogService {
         vo.setModuleName((String) r.get("moduleName"));
         vo.setAction((String) r.get("action"));
         vo.setUserName((String) r.get("userName"));
+        // RAG 调用日志专属字段 (异常日志无此字段, NON_NULL 不输出)
+        vo.setUserNickname((String) r.get("userNickname"));
+        vo.setUserId(toLong(r.get("userId")));
+        vo.setSessionId(toLong(r.get("sessionId")));
+        vo.setSessionName((String) r.get("sessionName"));
+        vo.setQueryText((String) r.get("queryText"));
+        vo.setRewrittenQuery((String) r.get("rewrittenQuery"));
+        vo.setRetrievedChunks(toInt(r.get("retrievedChunks")));
+        vo.setModelMode((String) r.get("modelMode"));
+        vo.setSuccessFlag(toInt(r.get("successFlag")));
+        vo.setLatencyMs(toLong(r.get("latencyMs")));
+        vo.setLatencySec(toDouble(r.get("latencySec")));
         vo.setModelName((String) r.get("modelName"));
         vo.setRequestId((String) r.get("requestId"));
         vo.setKeyword((String) r.get("keyword"));
@@ -103,6 +115,12 @@ public class AuditLogServiceImpl implements AuditLogService {
         if (v == null) return null;
         if (v instanceof Number n) return n.intValue();
         try { return Integer.parseInt(v.toString()); } catch (Exception e) { return null; }
+    }
+
+    private static Double toDouble(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.doubleValue();
+        try { return Double.parseDouble(v.toString()); } catch (Exception e) { return null; }
     }
 
     private static LocalDateTime toLocalDateTime(Object v) {

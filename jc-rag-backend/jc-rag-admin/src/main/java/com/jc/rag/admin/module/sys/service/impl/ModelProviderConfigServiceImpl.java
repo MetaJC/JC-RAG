@@ -32,13 +32,15 @@ public class ModelProviderConfigServiceImpl implements ModelProviderConfigServic
 
     @Override
     public List<Map<String, Object>> list() {
-        return jdbcTemplate.queryForList("""
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList("""
             SELECT id, provider_type AS providerType, provider_name AS providerName, endpoint,
                    model_name AS modelName, enabled, priority_no AS priorityNo,
-                   CASE WHEN api_key_encrypted IS NULL OR api_key_encrypted = '' THEN false ELSE true END AS apiKeyConfigured,
+                   api_key_encrypted AS apiKeyEncrypted,
                    updated_at AS updatedAt
             FROM llm_provider_config ORDER BY provider_type, priority_no, id
             """);
+        rows.forEach(this::applyApiKeyMask);
+        return rows;
     }
 
     @Override
@@ -64,12 +66,12 @@ public class ModelProviderConfigServiceImpl implements ModelProviderConfigServic
                 """, param.getProviderType(), param.getProviderName(), param.getEndpoint(), param.getApiKey(), param.getModelName(),
                 param.getEnabled() ? 1 : 0, priority, id);
         }
-        return jdbcTemplate.queryForMap("""
+        return applyApiKeyMask(jdbcTemplate.queryForMap("""
             SELECT id, provider_type AS providerType, provider_name AS providerName, endpoint, model_name AS modelName,
                    enabled, priority_no AS priorityNo,
-                   CASE WHEN api_key_encrypted IS NULL OR api_key_encrypted = '' THEN false ELSE true END AS apiKeyConfigured
+                   api_key_encrypted AS apiKeyEncrypted
             FROM llm_provider_config WHERE id=?
-            """, id);
+            """, id));
     }
 
     @Override public void delete(Long id) { jdbcTemplate.update("DELETE FROM llm_provider_config WHERE id=?", id); }
@@ -158,6 +160,37 @@ public class ModelProviderConfigServiceImpl implements ModelProviderConfigServic
 
     private String normalize(String endpoint) { return endpoint.endsWith("/") ? endpoint.substring(0, endpoint.length() - 1) : endpoint; }
     private String blankToNull(String value) { return value == null || value.isBlank() ? null : value; }
+
+    /**
+     * 将查询结果中的明文密钥替换为脱敏字段后返回。
+     *
+     * <p>输出 apiKeyConfigured (是否已配置) 与 apiKeyMasked (脱敏展示值, 保留首尾各 4 位),
+     * 明文密钥不会下发给前端。
+     * @param row 含 apiKeyEncrypted 字段的查询结果行
+     * @return 处理后的同一行
+     * @author JC
+     */
+    private Map<String, Object> applyApiKeyMask(Map<String, Object> row) {
+        Object raw = row.get("apiKeyEncrypted");
+        String key = raw == null ? null : String.valueOf(raw);
+        boolean configured = key != null && !key.isBlank();
+        row.put("apiKeyConfigured", configured);
+        row.put("apiKeyMasked", configured ? maskApiKey(key) : null);
+        row.remove("apiKeyEncrypted");
+        return row;
+    }
+
+    /**
+     * API Key 脱敏: 保留开头与结尾各 4 位, 中间以 * 号代替 (仅供展示, 不得回填保存)。
+     * @author JC
+     */
+    private String maskApiKey(String apiKey) {
+        String key = apiKey.trim();
+        if (key.length() <= 8) {
+            return key.charAt(0) + "****" + key.charAt(key.length() - 1);
+        }
+        return key.substring(0, 4) + "****" + key.substring(key.length() - 4);
+    }
     private void upsertRuntime(String group, String key, String value, int encrypted, String remark) {
         jdbcTemplate.update("""
             INSERT INTO sys_config (config_group, config_key, config_value, value_type, encrypted, remark)

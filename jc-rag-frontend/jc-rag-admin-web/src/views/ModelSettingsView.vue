@@ -36,6 +36,20 @@ async function loadLocalModels() { localModels.value = await fetchLocalModels();
 async function startDownload(item: LocalModelItem) { if (item.status === 'queued' || item.status === 'downloading') return; await downloadLocalModel(item.id); ElMessage.success(`${item.name} 已加入下载队列`); await loadLocalModels() }
 function optionStyle(item: LocalModelItem) { return item.status === 'downloading' ? { background: `linear-gradient(to right,#e5f7eb ${item.progress}%,transparent ${item.progress}%)` } : undefined }
 function chooseLocalModel(id: string) { const item = localModels.value.find(model => model.id === id); if (!item?.installed) { localModelId.value = ''; ElMessage.warning('该模型尚未下载，请点击右侧下载按钮'); return }; systemStore.form.embeddingModelPath = item.path; embeddingVerified.value = false }
+/** AI 问答主模型选择变化时同步到运行时配置表单 (保存按钮统一落盘) */
+function onPrimaryModelChange(value: (string | number)[]) {
+  const provider = enabledProviders.value.find(item => item.id === Number(value?.[0]))
+  if (!provider || value?.[1] == null) return
+  if (provider.providerType === 'OLLAMA' || provider.providerType === 'OFFLINE') {
+    systemStore.form.activeMode = 'offline'
+    systemStore.form.offlineModel = String(value[1])
+    if (provider.endpoint) systemStore.form.ollamaBaseUrl = provider.endpoint
+  } else {
+    systemStore.form.activeMode = 'online'
+    systemStore.form.onlineBaseUrl = provider.endpoint
+    systemStore.form.onlineModelName = String(value[1])
+  }
+}
 /** Embedding 服务选择变化时同步到运行时配置表单 (保存按钮统一落盘) */
 function onEmbeddingServiceChange(value: (string | number)[]) {
   const provider = enabledProviders.value.find(item => item.id === Number(value?.[0]))
@@ -64,7 +78,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 <template>
   <div class="model-settings" v-loading="systemStore.loading">
     <header class="page-header"><div><h1>模型设置</h1><p>只显示已启用且符合当前用途的模型。</p></div><el-button type="primary" :loading="saving" @click="save">保存</el-button></header>
-    <el-card shadow="never" header="文本模型"><el-form label-position="top"><el-form-item><template #label>AI 问答主模型</template><el-cascader v-model="primaryModel" :options="modelTree" :show-all-levels="true" placeholder="选择已启用的文本模型" class="wide-control" /></el-form-item></el-form></el-card>
+    <el-card shadow="never" header="文本模型"><el-form label-position="top"><el-form-item><template #label>AI 问答主模型</template><el-cascader v-model="primaryModel" :options="modelTree" :show-all-levels="true" placeholder="选择已启用的文本模型" class="wide-control" @change="onPrimaryModelChange" /></el-form-item></el-form></el-card>
     <el-card shadow="never" header="文本嵌入模型" class="mt"><el-tabs v-model="embeddingSource" @tab-change="onEmbeddingTabChange"><el-tab-pane label="本地模型（默认）" name="local"><el-form label-position="top">
       <el-form-item><template #label><span>本地 Embedding 模型 <el-tooltip content="模型下载到当前系统用户目录 .jc-rag/models/embedding/"><el-icon class="help"><QuestionFilled /></el-icon></el-tooltip></span></template>
         <div class="model-input-row"><el-select v-model="localModelId" class="download-select" filterable placeholder="查找并选择已下载的模型" @change="chooseLocalModel"><el-option v-for="item in localModels" :key="item.id" :label="item.name" :value="item.id"><div class="download-option" :style="optionStyle(item)"><div class="model-option-copy"><strong>{{ item.name }}</strong><small>{{ modelVendor(item) }} · {{ item.repoId }}</small></div><span v-if="item.installed" class="installed" title="已安装"><el-icon><CircleCheck /></el-icon></span><el-button v-else class="download-action" circle plain :icon="Download" :loading="item.status === 'downloading'" :title="item.status === 'queued' ? '等待下载' : item.status === 'downloading' ? `下载中 ${item.progress}%` : '下载模型'" @mousedown.prevent.stop @click.stop="startDownload(item)" /></div></el-option></el-select><el-button class="verify-button" :type="embeddingVerified ? 'success' : 'default'" :icon="embeddingVerified ? CircleCheck : Check" :loading="verifyingEmbedding" @click="verifyEmbedding">{{ embeddingVerified ? '验证通过' : '验证模型' }}</el-button></div>

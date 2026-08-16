@@ -129,6 +129,10 @@ public class UserChatServiceImpl implements UserChatService {
     private final SecurityAuditService auditService;
     /** 用户自定义智能体 mapper */
     private final UserCustomAgentMapper userAgentMapper;
+    /** 模型服务商配置 mapper (解析在线 Embedding 服务的 endpoint/密钥) */
+    private final com.jc.rag.domain.mapper.sys.LlmProviderConfigMapper llmProviderConfigMapper;
+    /** RAG 调用日志 mapper (后台日志审计-RAG 调用日志数据源) */
+    private final com.jc.rag.domain.mapper.rag.RagCallLogMapper ragCallLogMapper;
     /**
      * 自注入: 让内部调用 saveSummary 走 Spring 代理, @Transactional 才能生效
      * (避免 STREAM_EXECUTOR 线程内 this.saveSummary() 事务失效).
@@ -144,6 +148,8 @@ public class UserChatServiceImpl implements UserChatService {
                                UserSensitiveWordCache sensitiveCache,
                                SecurityAuditService auditService,
                                UserCustomAgentMapper userAgentMapper,
+                               com.jc.rag.domain.mapper.sys.LlmProviderConfigMapper llmProviderConfigMapper,
+                               com.jc.rag.domain.mapper.rag.RagCallLogMapper ragCallLogMapper,
                                @org.springframework.context.annotation.Lazy UserChatServiceImpl self) {
         this.sessionMapper = s;
         this.messageMapper = m;
@@ -159,6 +165,8 @@ public class UserChatServiceImpl implements UserChatService {
         this.sensitiveCache = sensitiveCache;
         this.auditService = auditService;
         this.userAgentMapper = userAgentMapper;
+        this.llmProviderConfigMapper = llmProviderConfigMapper;
+        this.ragCallLogMapper = ragCallLogMapper;
         this.self = self;
     }
 
@@ -350,6 +358,8 @@ public class UserChatServiceImpl implements UserChatService {
         }
         long started = System.currentTimeMillis();
         String answer;
+        boolean askSuccess = true;
+        String askError = null;
         try {
             answer = callPythonAsk(userId, sessionId, question, resolvedAgentId, customAgentId);
         } catch (com.jc.rag.common.exception.BizException be) {
@@ -357,10 +367,13 @@ public class UserChatServiceImpl implements UserChatService {
             throw be;
         } catch (Exception e) {
             log.warn("ask failed: {}", e.getMessage());
+            askSuccess = false;
+            askError = e.getMessage();
             answer = "提问失败，请确认 Python RAG 服务和模型服务是否正常运行。";
         }
         long latency = System.currentTimeMillis() - started;
         insertMsg(sessionId, "ASSISTANT", answer, nextIdx + 1, 0, latency);
+        recordRagCallLog(userId, sessionId, question, null, askSuccess, latency, askError);
         touchSession(sessionId);
         recordUsage(userId);
         // L1 摘要压缩: 累计轮数达到阈值时, 异步压缩最前 N 轮原文
@@ -416,6 +429,8 @@ public class UserChatServiceImpl implements UserChatService {
             StringBuilder fullAnswer = new StringBuilder();
             boolean ok = false;
             boolean doneForwarded = false;
+            Integer retrievedChunks = null;
+            String streamError = null;
             long started = System.currentTimeMillis();
             try {
                 checkDailyQuota(userId);
@@ -432,6 +447,7 @@ public class UserChatServiceImpl implements UserChatService {
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
                 HttpResponse<java.io.InputStream> resp = HTTP_CLIENT.send(req, HttpResponse.BodyHandlers.ofInputStream());
                 if (resp.statusCode() >= 400) {
+                    streamError = "模型服务暂时不可用";
                     emitter.send(SseEmitter.event().name("error").data(Map.of("type", "error", "error", "模型服务暂时不可用")));
                 } else {
                     ok = true;
@@ -445,6 +461,9 @@ public class UserChatServiceImpl implements UserChatService {
                             Map<String, Object> data = objectMapper.readValue(raw, new TypeReference<>() {});
                             String type = String.valueOf(data.getOrDefault("type", ""));
                             if ("done".equals(type) || Boolean.TRUE.equals(data.get("done"))) {
+                                if (data.get("references") instanceof java.util.List<?> refs) {
+                                    retrievedChunks = refs.size();
+                                }
                                 Map<String, Object> doneData = new LinkedHashMap<>(data);
                                 doneData.put("llmUsed", true);
                                 emitter.send(SseEmitter.event().name("done").data(doneData));
@@ -462,6 +481,7 @@ public class UserChatServiceImpl implements UserChatService {
                             } else if ("thinking".equals(type)) {
                                 emitter.send(SseEmitter.event().name("thinking").data(data));
                             } else if ("error".equals(type)) {
+                                streamError = String.valueOf(data.getOrDefault("error", ""));
                                 emitter.send(SseEmitter.event().name("error").data(data));
                             }
                         } catch (Exception e) {
@@ -471,6 +491,7 @@ public class UserChatServiceImpl implements UserChatService {
                 }
             } catch (Exception e) {
                 log.error("SSE stream error for session {}: {}", sessionId, e.getMessage());
+                streamError = e.getMessage();
                 try {
                     String errMsg = (e.getMessage() != null && e.getMessage().contains("已达限制")) ? e.getMessage() : "连接异常";
                     emitter.send(SseEmitter.event().name("error").data(Map.of("type", "error", "error", errMsg)));
@@ -479,6 +500,9 @@ public class UserChatServiceImpl implements UserChatService {
             if (!fullAnswer.isEmpty()) {
                 insertMsg(sessionId, "ASSISTANT", fullAnswer.toString(), nextIdx + 1, 0, System.currentTimeMillis() - started);
             }
+            recordRagCallLog(userId, sessionId, question, retrievedChunks,
+                ok && streamError == null && !fullAnswer.isEmpty(),
+                System.currentTimeMillis() - started, streamError);
             touchSession(sessionId);
             if (ok) recordUsage(userId);
             // L1 摘要压缩: 累计轮数达到阈值时, 异步压缩最前 N 轮原文 (失败/无答案也尝试, 避免漏触发)
@@ -1032,15 +1056,110 @@ public class UserChatServiceImpl implements UserChatService {
         return o;
     }
 
+    /**
+     * 构造下发 Python 的 RAG 参数覆盖。
+     * <p>必须与 admin 端 RuntimeConfigServiceImpl#buildRagOverrideForPython 字段对齐:
+     * source=service 时携带在线服务配置, 否则 Python 会回退本地模型。
+     *
+     * @author JC
+     */
     private Map<String, Object> buildRagOverride() {
         Map<String, Object> ragOverride = new LinkedHashMap<>();
         Map<String, Object> embedding = new LinkedHashMap<>();
+        embedding.put("source", defaultIfBlank(
+            getConfigValue("rag.embedding.source"), "local"));
         embedding.put("modelPath", defaultIfBlank(
             getConfigValue("rag.embedding.model.path"), RuntimeConfigDefaults.EMBEDDING_MODEL_PATH));
         embedding.put("device", defaultIfBlank(
             getConfigValue("rag.embedding.device"), RuntimeConfigDefaults.EMBEDDING_DEVICE));
+        embedding.put("dims", parseLongOrDefault(
+            getConfigValue("rag.embedding.dims"), RuntimeConfigDefaults.EMBEDDING_DIMS));
+        embedding.put("batchSize", parseLongOrDefault(
+            getConfigValue("rag.embedding.batchSize"), RuntimeConfigDefaults.EMBEDDING_BATCH_SIZE));
+        embedding.put("normalizeEmbeddings", parseBooleanOrDefault(
+            getConfigValue("rag.embedding.normalizeEmbeddings"), RuntimeConfigDefaults.EMBEDDING_NORMALIZE));
+        embedding.put("service", buildEmbeddingServiceOverride());
         ragOverride.put("embedding", embedding);
         return ragOverride;
+    }
+
+    /**
+     * 在线 Embedding 服务配置: provider/modelName 取自 sys_config,
+     * endpoint/apiKey 按 provider 反查 llm_provider_config 最新一条。
+     *
+     * @author JC
+     */
+    private Map<String, Object> buildEmbeddingServiceOverride() {
+        Map<String, Object> service = new LinkedHashMap<>();
+        String provider = defaultIfBlank(getConfigValue("rag.embedding.service.provider"), "");
+        service.put("provider", provider);
+        service.put("modelName", defaultIfBlank(getConfigValue("rag.embedding.service.model"), ""));
+        service.put("dims", parseLongOrDefault(getConfigValue("rag.embedding.service.dims"), 0));
+        String endpoint = "";
+        String apiKey = "";
+        if (!provider.isBlank()) {
+            try {
+                com.jc.rag.domain.entity.sys.LlmProviderConfigEntity entity =
+                    llmProviderConfigMapper.selectLatestByProviderName(provider);
+                if (entity != null) {
+                    endpoint = entity.getEndpoint() == null ? "" : entity.getEndpoint();
+                    apiKey = entity.getApiKeyEncrypted() == null ? "" : entity.getApiKeyEncrypted();
+                }
+            } catch (Exception ex) {
+                log.warn("Embedding 在线服务商配置读取失败 (provider={}): {}", provider, ex.getMessage());
+            }
+        }
+        service.put("baseUrl", endpoint);
+        service.put("apiKey", apiKey);
+        return service;
+    }
+
+    private long parseLongOrDefault(String value, long defaultValue) {
+        if (value == null || value.isBlank()) return defaultValue;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private boolean parseBooleanOrDefault(String value, boolean defaultValue) {
+        if (value == null || value.isBlank()) return defaultValue;
+        String v = value.trim().toLowerCase();
+        return "true".equals(v) || "1".equals(v) || "yes".equals(v);
+    }
+
+    /**
+     * 写入 RAG 调用日志 (后台日志审计数据源)。
+     * <p>容错设计: 写日志失败仅告警, 不影响问答主流程。
+     * <p>token 数当前 Python SSE 协议未回传, 留空由 DB 默认 0 填充。
+     *
+     * @author JC
+     */
+    private void recordRagCallLog(Long userId, Long sessionId, String question,
+                                  Integer retrievedChunks, boolean success,
+                                  long latencyMs, String errorMessage) {
+        try {
+            com.jc.rag.domain.entity.rag.RagCallLog logEntity = new com.jc.rag.domain.entity.rag.RagCallLog();
+            logEntity.setUserId(userId);
+            logEntity.setSessionId(sessionId);
+            logEntity.setQueryText(truncateForLog(question, 2000));
+            logEntity.setRetrievedChunks(retrievedChunks == null ? 0 : retrievedChunks);
+            Map<String, Object> override = buildProviderOverride(userId);
+            logEntity.setModelMode(String.valueOf(override.getOrDefault("activeMode", "offline")));
+            logEntity.setModelName(resolveActiveModelName(userId));
+            logEntity.setLatencyMs(latencyMs);
+            logEntity.setSuccessFlag(success ? 1 : 0);
+            logEntity.setErrorMessage(errorMessage == null ? null : truncateForLog(errorMessage, 1000));
+            ragCallLogMapper.insert(logEntity);
+        } catch (Exception e) {
+            log.warn("rag_call_log 写入失败 (不影响主流程): {}", e.getMessage());
+        }
+    }
+
+    private String truncateForLog(String value, int maxLen) {
+        if (value == null) return null;
+        return value.length() <= maxLen ? value : value.substring(0, maxLen);
     }
 
     private boolean shouldGenerateTitle(Long sessionId, int nextIdx) {

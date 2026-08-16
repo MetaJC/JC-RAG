@@ -1046,11 +1046,15 @@ public class KnowledgeBaseServiceImpl
         }
         DocFileInfoVO vo = new DocFileInfoVO();
         vo.setStream(stream);
-        vo.setContentType(row.get("contentType") != null ? String.valueOf(row.get("contentType")) : "application/octet-stream");
-        vo.setFileName(String.valueOf(row.get("fileName")));
-        Object fileSize = row.get("fileSize");
+        // selectFileInfo 列无别名, Map 键为 snake_case, 需双键兼容读取 (否则文件名返回 "null")
+        String contentType = readString(row, "contentType", "content_type");
+        vo.setContentType(contentType != null ? contentType : "application/octet-stream");
+        String fileName = readString(row, "fileName", "file_name");
+        vo.setFileName(fileName != null ? fileName : ("doc-" + documentId));
+        Object fileSize = row.get("fileSize") != null ? row.get("fileSize") : row.get("file_size");
         vo.setFileSize(asLong(fileSize));
-        vo.setUploadedAt(asDateTime(row.get("uploadedAt")));
+        Object uploadedAt = row.get("uploadedAt") != null ? row.get("uploadedAt") : row.get("uploaded_at");
+        vo.setUploadedAt(asDateTime(uploadedAt));
         return vo;
     }
 
