@@ -548,7 +548,7 @@ async function onSetDefaultKb(item: KnowledgeBaseItem) {
       // 同步更新列表中该 KB 的 visibilityScope (否则可见范围 tag 和 hasPublicKb 不会立即生效)
       const idx = knowledgeBases.value.findIndex((k) => k.id === item.id)
       if (idx >= 0) {
-        knowledgeBases.value[idx] = { ...knowledgeBases.value[idx], visibilityScope: 'PUBLIC' }
+        knowledgeBases.value[idx] = { ...knowledgeBases.value[idx]!, visibilityScope: 'PUBLIC' }
       }
       const updated = await setSystemDefaultKb(item.id)
       applyDefaultKbLocally(updated)

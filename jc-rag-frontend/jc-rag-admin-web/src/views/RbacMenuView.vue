@@ -6,7 +6,7 @@
  * @author JC
  */
 import { computed, onMounted, ref } from 'vue'
-import { Delete, Edit, FolderAdd, Plus } from '@element-plus/icons-vue'
+import { Delete, Edit, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import RbacPermissionDialog from '../components/RbacPermissionDialog.vue'

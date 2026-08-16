@@ -10,7 +10,6 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
-  Connection,
   Delete,
   Edit,
   Plus,

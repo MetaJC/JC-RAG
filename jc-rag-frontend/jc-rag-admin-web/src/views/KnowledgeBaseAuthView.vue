@@ -259,13 +259,6 @@ function displayUserPerm(user: KbAuthUserItem): number {
   return Math.max(direct, maxRole)
 }
 
-/** 调试用: 把后端返回的 permLevel 原始值转成可读字符串, null/undefined 一眼可见 */
-function dbgPermLevel(role: KbAuthRoleItem): string {
-  if (role.permLevel === null) return 'NULL'
-  if (role.permLevel === undefined) return 'UNDEFINED'
-  return String(role.permLevel)
-}
-
 function userDisplayName(user: KbAuthUserItem): string {
   return user.nickname || user.username
 }

@@ -71,7 +71,6 @@ const failed = ref(false)
 const checking = ref(false)
 
 let challengeId = ''
-let issuedAt = 0
 let startMouseX = 0
 let startKnobX = 0
 let dragStartTime = 0
@@ -103,7 +102,6 @@ async function fetchChallenge() {
     const data = unwrap(json) ?? {}
     if (data.challengeId) {
       challengeId = data.challengeId
-      issuedAt = data.issuedAt
     }
   } catch (e) {
     console.warn('[captcha] 获取 challenge 失败, 继续允许本地校验', e)
@@ -124,7 +122,7 @@ function onDragStart(e: MouseEvent | TouchEvent) {
   if (passed.value || checking.value) return
   dragging.value = true
   failed.value = false
-  const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+  const clientX = 'touches' in e ? (e.touches[0]?.clientX ?? 0) : e.clientX
   startMouseX = clientX
   startKnobX = knobX.value
   dragStartTime = performance.now()
@@ -137,7 +135,7 @@ function onDragStart(e: MouseEvent | TouchEvent) {
 function onDragMove(e: MouseEvent | TouchEvent) {
   if (!dragging.value) return
   if ('touches' in e) e.preventDefault()
-  const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+  const clientX = 'touches' in e ? (e.touches[0]?.clientX ?? 0) : e.clientX
   const delta = clientX - startMouseX
   const max = trackWidth.value - blockSize
   knobX.value = Math.max(0, Math.min(max, startKnobX + delta))

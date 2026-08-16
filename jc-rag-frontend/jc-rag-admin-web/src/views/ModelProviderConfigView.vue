@@ -4,7 +4,7 @@ import { Connection, Cpu, DataAnalysis, Download, Edit, MagicStick, Microphone, 
 import { ElMessage } from 'element-plus'
 import { useSystemStore } from '../stores/system'
 import { fetchModelCatalog, fetchModelProviders, refreshModelCatalog, refreshProviderModels, saveModelProvider, testModelProvider, type CatalogModelItem, type ModelCatalog, type ModelProviderConfig } from '../api/sys'
-import { modelProviderExtensions, type ModelProviderExtension } from 'jc-rag-admin-web/config/modelProviderExtensions'
+import { modelProviderExtensions, type ModelProviderExtension } from '../config/modelProviderExtensions'
 import './ModelProviderConfigView.css'
 
 type Capability = '工具' | '视觉' | '联网' | '推理' | '向量' | '重排序' | '生图' | '生视频' | '多模态' | '语音' | '编程' | '结构化'

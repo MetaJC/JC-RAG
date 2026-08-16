@@ -122,10 +122,12 @@ export interface BrowseDirectoryResult {
   directories: BrowseDirectory[]
 }
 
+/** 模型验证结果, 与后端 EmbeddingVerifyVO 对齐 */
 export interface ModelVerifyResult {
-  status: 'SUCCESS' | 'FAILED' | 'loading'
+  valid?: boolean
   message: string
-  detail?: string
+  modelPath?: string
+  sizeBytes?: number
 }
 
 export interface DocumentParseStage {

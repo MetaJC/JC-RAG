@@ -37,7 +37,6 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useDeptDrag, type DropResult } from '../composables/useDeptDrag'
-import { useAuthStore } from '../stores/auth'
 
 import {
   assignRbacDepartmentUsers,
@@ -107,7 +106,6 @@ const expandedIds = ref<Set<number>>(new Set())
  * 公司名称 (顶级部门 parent_id=0)
  * <p>展示在表格上方, 表格内不显示根节点; 仅有 super_admin / developer 可编辑.
  * ===================================================================== */
-const authStore = useAuthStore()
 /**
  * 公司名称编辑权限: 直接采用后端 root 接口返回的 canEdit 字段
  * <p>避免前端硬编码 username / role 字符串; 后端按 developer / super_admin 决定
@@ -214,8 +212,9 @@ async function saveCompanyName() {
  * <p>若历史脏数据出现多 parent_id=0 节点, 不剥除 (降级为原样展示), 避免误删部门.
  */
 const displayTree = computed<DeptNode[]>(() => {
-  if (deptTree.value.length === 1 && deptTree.value[0].parentId === 0) {
-    return deptTree.value[0].children ?? []
+  const root = deptTree.value.length === 1 ? deptTree.value[0] : undefined
+  if (root && root.parentId === 0) {
+    return root.children ?? []
   }
   return deptTree.value
 })
