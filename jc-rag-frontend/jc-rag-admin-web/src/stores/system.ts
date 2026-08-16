@@ -76,6 +76,10 @@ export const useSystemStore = defineStore('system', () => {
     embeddingDims: 1024,
     embeddingBatchSize: 32,
     embeddingNormalizeEmbeddings: true,
+    embeddingSource: 'local',
+    embeddingServiceProvider: '',
+    embeddingServiceModel: '',
+    embeddingServiceDims: 0,
     temperature: 0.3,
     topP: 0.8,
     maxTokens: 1024,
@@ -104,6 +108,10 @@ export const useSystemStore = defineStore('system', () => {
     form.embeddingDims = config.rag.embedding.dims
     form.embeddingBatchSize = config.rag.embedding.batchSize
     form.embeddingNormalizeEmbeddings = config.rag.embedding.normalizeEmbeddings
+    form.embeddingSource = config.rag.embedding.source || 'local'
+    form.embeddingServiceProvider = config.rag.embedding.service?.provider || ''
+    form.embeddingServiceModel = config.rag.embedding.service?.modelName || ''
+    form.embeddingServiceDims = config.rag.embedding.service?.dims || 0
     form.temperature = config.model.defaults.temperature
     form.topP = config.model.defaults.topP
     form.maxTokens = config.model.defaults.maxTokens

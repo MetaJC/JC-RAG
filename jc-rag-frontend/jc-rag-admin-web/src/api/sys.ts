@@ -193,6 +193,50 @@ export async function testModelProvider(payload: { id?: number; providerName: st
   return (data?.data ?? data) as { success: boolean; message: string }
 }
 
+/* ============== 模型目录 (三层同步: L1 内置 / L2 远程 / L3 账户实时) ============== */
+
+export type CatalogModelType = 'chat' | 'embedding' | 'rerank' | 'image' | 'video' | 'audio' | 'other' | 'unknown'
+
+/** 模态取值: text/image/video/audio */
+export type CatalogModality = 'text' | 'image' | 'video' | 'audio' | string
+
+/** 功能特性取值: tool-call/thinking/web-search/structured-output/coding/cache */
+export type CatalogFeature = 'tool-call' | 'thinking' | 'web-search' | 'structured-output' | 'coding' | 'cache' | string
+
+export interface CatalogModelItem {
+  name: string
+  type: CatalogModelType | string
+  /** 支持的输入模态 (目录未提供时由前端按名称兜底推断) */
+  inputs?: CatalogModality[]
+  /** 支持的输出模态 */
+  outputs?: CatalogModality[]
+  /** 功能特性 */
+  features?: CatalogFeature[]
+}
+
+export interface CatalogProvider {
+  id: string
+  name?: string
+  models: CatalogModelItem[]
+}
+
+export interface ModelCatalog {
+  version?: string
+  source?: 'builtin' | 'remote' | string
+  updatedAt?: string
+  providers: CatalogProvider[]
+}
+
+export async function fetchModelCatalog(): Promise<ModelCatalog> {
+  const { data } = await request.get('/model/catalog')
+  return (data?.data ?? data) as ModelCatalog
+}
+
+export async function refreshModelCatalog(): Promise<ModelCatalog> {
+  const { data } = await request.post('/model/catalog/refresh')
+  return (data?.data ?? data) as ModelCatalog
+}
+
 export interface LocalModelItem {
   id: string
   name: string

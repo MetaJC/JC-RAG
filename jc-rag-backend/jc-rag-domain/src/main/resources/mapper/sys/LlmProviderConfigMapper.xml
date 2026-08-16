@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jc.rag.domain.mapper.sys.LlmProviderConfigMapper">
+
+    <select id="selectLatestByProviderName" resultType="com.jc.rag.domain.entity.sys.LlmProviderConfigEntity">
+        SELECT id,
+               provider_type AS providerType,
+               provider_name AS providerName,
+               endpoint,
+               api_key_encrypted AS apiKeyEncrypted,
+               model_name AS modelName,
+               enabled,
+               priority_no AS priorityNo,
+               updated_at AS updatedAt
+        FROM llm_provider_config
+        WHERE provider_name = #{providerName}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+</mapper>

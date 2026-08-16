@@ -309,6 +309,50 @@ def _resolve_lm_studio_model(base_url: str) -> str | None:
     return None
 
 
+def _build_online_embeddings_url(base_url: str) -> str:
+    """将服务商 endpoint 归一化为 OpenAI 兼容的 embeddings 地址."""
+    base = base_url.rstrip("/")
+    if base.endswith("/embeddings"):
+        return base
+    if base.endswith("/v1"):
+        return base + "/embeddings"
+    return base + "/v1/embeddings"
+
+
+def _embed_via_online_api(
+    texts: list[str],
+    base_url: str,
+    api_key: str,
+    model_name: str,
+    batch_size: int,
+) -> list[list[float]]:
+    """通过 OpenAI 兼容 /embeddings 接口调用在线 Embedding 服务 (分批提交)."""
+    import urllib.request
+    import json
+
+    url = _build_online_embeddings_url(base_url)
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    vectors: list[list[float]] = []
+    step = max(1, int(batch_size or 8))
+    for start in range(0, len(texts), step):
+        chunk = texts[start:start + step]
+        payload: dict[str, Any] = {"input": chunk}
+        if model_name:
+            payload["model"] = model_name
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            method="POST", headers=headers,
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        data_list = sorted(result.get("data", []), key=lambda d: d.get("index", 0))
+        vectors.extend(d["embedding"] for d in data_list)
+    return vectors
+
+
 def _resolve_embedding_override(settings, embedding_override: dict[str, Any] | None) -> dict[str, Any]:
     override = embedding_override if isinstance(embedding_override, dict) else {}
     model_path = str(override.get("modelPath") or settings.embedding.model_path or "").strip()
@@ -317,10 +361,34 @@ def _resolve_embedding_override(settings, embedding_override: dict[str, Any] | N
         or getattr(settings.embedding, "lm_studio_url", "")
         or LM_STUDIO_DEFAULT_URL
     ).strip()
-    device = _resolve_device(
-        str(override.get("device") or settings.embedding.device or "auto"),
-        lm_studio_url=lm_studio_url,
-    )
+    # Embedding 来源: local=本地模型, service=在线模型服务 (/v1/embeddings)
+    source = str(
+        override.get("source") or getattr(settings.embedding, "source", "") or "local"
+    ).strip().lower()
+    service_raw = override.get("service")
+    service_dict = service_raw if isinstance(service_raw, dict) else {}
+    try:
+        service_dims = int(service_dict.get("dims") or 0)
+    except Exception:
+        service_dims = 0
+    service = {
+        "provider": str(service_dict.get("provider") or "").strip(),
+        "baseUrl": str(service_dict.get("baseUrl") or "").strip(),
+        "apiKey": str(service_dict.get("apiKey") or "").strip(),
+        "modelName": str(service_dict.get("modelName") or "").strip(),
+        "dims": service_dims,
+    }
+    if source == "service" and not service["baseUrl"]:
+        logger.warning("Embedding source=service 但服务商未配置 endpoint, 回退本地模型")
+        source = "local"
+    if source == "service":
+        # 在线服务模式不依赖本地设备, 跳过 GPU 探测
+        device = "online"
+    else:
+        device = _resolve_device(
+            str(override.get("device") or settings.embedding.device or "auto"),
+            lm_studio_url=lm_studio_url,
+        )
     dims = override.get("dims", settings.embedding.dims)
     try:
         dims_value = int(dims) if dims is not None and str(dims).strip() != "" else None
@@ -341,11 +409,19 @@ def _resolve_embedding_override(settings, embedding_override: dict[str, Any] | N
         "batchSize": batch_size_value,
         "normalizeEmbeddings": normalize_value,
         "lmStudioUrl": lm_studio_url,
+        "source": source,
+        "service": service,
     }
 
 
 def get_embedding_dimension(settings, embedding_override: dict[str, Any] | None = None) -> int:
     cfg = _resolve_embedding_override(settings, embedding_override)
+    if cfg["source"] == "service":
+        service = cfg["service"]
+        if service["dims"] and int(service["dims"]) > 0:
+            return int(service["dims"])
+        vectors, _ = embed_texts(["维度探测"], settings, embedding_override)
+        return len(vectors[0]) if vectors and vectors[0] else 0
     if cfg["dims"] and int(cfg["dims"]) > 0:
         return int(cfg["dims"])
     if cfg["device"] == "lm_studio":
@@ -362,6 +438,31 @@ def embed_texts(
     cfg = _resolve_embedding_override(settings, embedding_override)
     device = cfg["device"]
     started = time.time()
+
+    if cfg["source"] == "service":
+        service = cfg["service"]
+        logger.info(
+            "Embedding 通过在线模型服务调用: provider=%s, model=%s",
+            service["provider"], service["modelName"],
+        )
+        vectors = _embed_via_online_api(
+            texts, service["baseUrl"], service["apiKey"],
+            service["modelName"], cfg["batchSize"],
+        )
+        dims = len(vectors[0]) if vectors else service["dims"]
+        cost_ms = int((time.time() - started) * 1000)
+        return (
+            vectors,
+            {
+                "modelPath": f"{service['provider']}:{service['modelName']}",
+                "device": "online-api",
+                "source": "service",
+                "dims": dims,
+                "costMs": cost_ms,
+                "batchSize": cfg["batchSize"],
+                "normalizeEmbeddings": cfg["normalizeEmbeddings"],
+            },
+        )
 
     if device == "lm_studio":
         base_url = cfg["lmStudioUrl"]
@@ -454,7 +555,11 @@ def get_embedding_status(settings, embedding_override: dict[str, Any] | None = N
         dims = get_embedding_dimension(settings, embedding_override)
         return {
             "enabled": True,
-            "modelPath": cfg["modelPath"],
+            "source": cfg["source"],
+            "modelPath": (
+                f"{cfg['service']['provider']}:{cfg['service']['modelName']}"
+                if cfg["source"] == "service" else cfg["modelPath"]
+            ),
             "device": cfg["device"],
             "dims": dims,
             "batchSize": cfg["batchSize"],
@@ -463,6 +568,7 @@ def get_embedding_status(settings, embedding_override: dict[str, Any] | None = N
     except Exception as ex:
         return {
             "enabled": False,
+            "source": cfg["source"],
             "modelPath": cfg["modelPath"],
             "device": cfg["device"],
             "error": str(ex),

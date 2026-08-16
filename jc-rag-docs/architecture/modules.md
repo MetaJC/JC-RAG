@@ -30,13 +30,27 @@
 | SysApiKeyController     | /api/sys/api-keys                 | C 端用户 API Key 管理      |
 | SysLegalDocController   | /api/sys/legal-doc                | 用户协议 / 隐私政策 (A 端管理) |
 | DictController          | /api/sys/dict                     | 字典                       |
+| ModelProviderConfigController | /api/model/providers        | 模型服务商配置 (含 L3 账户级 /v1/models 刷新) |
+| ModelCatalogController  | /api/model/catalog                | 模型目录 (L1 内置 + L2 远程同步, 含类型与能力标注) |
 | SysNotifyController     | /api/sys/notify                   | 站内通知 (原 NotificationController) |
 | SysLogController        | /api/sys/log/{operation,exception,rag-call} | 操作日志 / 异常日志 / RAG 调用日志 (统一入口) |
 | AuditLogQueryController | /api/audit/{rag-call-logs,exception-logs} | [兼容层 @Deprecated] 旧路径, 新接口用 SysLogController |
 
 ### Service
 
-`RuntimeConfigService` / `SystemHealthService` / `SysDemoModeService` / `SysApiKeyService` / `DashboardService` / `DictService` / `NotificationService` / `OperationLogService`，均遵循 `Interface + Impl` 模式。
+`RuntimeConfigService` / `SystemHealthService` / `SysDemoModeService` / `SysApiKeyService` / `DashboardService` / `DictService` / `NotificationService` / `OperationLogService` / `ModelProviderConfigService` / `ModelCatalogService`，均遵循 `Interface + Impl` 模式。
+
+### 模型目录三层同步机制
+
+| 层 | 机制 | 数据源 |
+|----|------|--------|
+| L1 内置目录 | 随版本发布, 含模型类型标注 (chat/embedding/rerank/image/video/audio/other) 与能力数据 (inputs/outputs 模态 + features 特性) | `jc-rag-admin/src/main/resources/model-catalog.json` |
+| L2 远程目录 | 可配置 URL + TTL 缓存 (sys_config `model.catalog.cache`), 失败自动回退 | sys_config `model.catalog.remoteUrl` / `model.catalog.ttlHours` (默认 168h) |
+| L3 账户实时 | 已配置的 API Key 调服务商 /v1/models | `ModelProviderConfigService#refreshModels` |
+
+目录模型条目结构：`name` / `type` / `inputs`(text/image/video/audio) / `outputs` / `features`(tool-call/thinking/web-search/structured-output/coding/cache)。前端能力标签优先使用目录维护的能力数据，仅 L3 实时结果与旧内置列表回退到名称启发式推断；能力筛选标签支持多选。
+
+读取优先级: TTL 内远程缓存 &gt; 远程拉取 &gt; 过期缓存 &gt; 内置目录。Embedding 来源 (local/service) 持久化在 sys_config `rag.embedding.source` 与 `rag.embedding.service.*`, Java 端通过 `buildRagOverrideForPython()` 下发给 Python, 在线模式走 OpenAI 兼容 `/embeddings` 接口。
 
 ## rag 模块
 

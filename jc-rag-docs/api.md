@@ -41,6 +41,8 @@ src/api/
 |          | createSysPermission / updateSysPermission / deleteSysPermission      |
 | Runtime  | fetchRuntimeConfig / saveRuntimeConfig                               |
 | Health   | fetchServiceHealth                                                   |
+| 模型服务商 | fetchModelProviders / saveModelProvider / refreshProviderModels / testModelProvider |
+| 模型目录 | fetchModelCatalog / refreshModelCatalog（三层同步：L1 内置 / L2 远程 / L3 账户实时刷新） |
 | 扩展     | fetchOllamaModels / fetchDevices / fetchSystemResources / verifyModel / browseDirectory |
 | Demo     | fetchDemoConfig / updateDemoConfig / fetchRoleQuotas / saveRoleQuota / checkQuota |
 | ApiKey   | fetchUserApiKeys / fetchActiveApiKey / saveUserApiKey / toggleUserApiKey / deleteUserApiKey |

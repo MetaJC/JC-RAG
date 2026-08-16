@@ -3,6 +3,8 @@ package com.jc.rag.admin.module.sys.service.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jc.rag.common.config.RuntimeConfigDefaults;
+import com.jc.rag.domain.entity.sys.LlmProviderConfigEntity;
+import com.jc.rag.domain.mapper.sys.LlmProviderConfigMapper;
 import com.jc.rag.domain.mapper.sys.SysConfigMapper;
 import com.jc.rag.admin.config.AppProperties;
 import com.jc.rag.admin.config.ExternalServiceProperties;
@@ -51,17 +53,20 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
     private final ExternalServiceProperties externalServiceProperties;
     private final SysConfigMapper sysConfigMapper;
     private final ObjectMapper objectMapper;
+    private final LlmProviderConfigMapper llmProviderConfigMapper;
 
     public RuntimeConfigServiceImpl(
         AppProperties appProperties,
         ExternalServiceProperties externalServiceProperties,
         SysConfigMapper sysConfigMapper,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        LlmProviderConfigMapper llmProviderConfigMapper
     ) {
         this.appProperties = appProperties;
         this.externalServiceProperties = externalServiceProperties;
         this.sysConfigMapper = sysConfigMapper;
         this.objectMapper = objectMapper;
+        this.llmProviderConfigMapper = llmProviderConfigMapper;
     }
 
     @Override
@@ -128,6 +133,12 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
         upsertConfig("rag", "embedding.dims", String.valueOf(request.getEmbeddingDims() == null ? 0 : request.getEmbeddingDims()), "NUMBER", 0, "Embedding vector dims (0=auto)");
         upsertConfig("rag", "embedding.batchSize", String.valueOf(request.getEmbeddingBatchSize() == null ? 32 : request.getEmbeddingBatchSize()), "NUMBER", 0, "Embedding batch size");
         upsertConfig("rag", "embedding.normalizeEmbeddings", String.valueOf(request.getEmbeddingNormalizeEmbeddings() == null ? true : request.getEmbeddingNormalizeEmbeddings()), "BOOLEAN", 0, "Embedding normalize embeddings");
+        String embeddingSource = request.getEmbeddingSource() == null || request.getEmbeddingSource().isBlank()
+            ? RuntimeConfigDefaults.EMBEDDING_SOURCE : request.getEmbeddingSource().trim();
+        upsertConfig("rag", "embedding.source", embeddingSource, "STRING", 0, "Embedding source: local/service");
+        upsertConfig("rag", "embedding.service.provider", Objects.requireNonNullElse(request.getEmbeddingServiceProvider(), ""), "STRING", 0, "Embedding online service provider");
+        upsertConfig("rag", "embedding.service.model", Objects.requireNonNullElse(request.getEmbeddingServiceModel(), ""), "STRING", 0, "Embedding online service model");
+        upsertConfig("rag", "embedding.service.dims", String.valueOf(request.getEmbeddingServiceDims() == null ? 0 : request.getEmbeddingServiceDims()), "NUMBER", 0, "Embedding online service dims (0=auto)");
         upsertConfig("model", "default.temperature", String.valueOf(request.getTemperature()), "NUMBER", 0, "Default temperature");
         upsertConfig("model", "default.topP", String.valueOf(request.getTopP()), "NUMBER", 0, "Default top_p");
         upsertConfig("model", "default.maxTokens", String.valueOf(request.getMaxTokens()), "NUMBER", 0, "Default max tokens");
@@ -180,11 +191,13 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
     public Map<String, Object> buildRagOverrideForPython() {
         Map<String, String> dynamicConfig = loadDynamicConfig();
         Map<String, Object> embedding = new LinkedHashMap<>();
+        embedding.put("source", resolveString(dynamicConfig, "rag.embedding.source", RuntimeConfigDefaults.EMBEDDING_SOURCE));
         embedding.put("modelPath", resolveString(dynamicConfig, "rag.embedding.model.path", RuntimeConfigDefaults.EMBEDDING_MODEL_PATH));
         embedding.put("device", resolveString(dynamicConfig, "rag.embedding.device", RuntimeConfigDefaults.EMBEDDING_DEVICE));
         embedding.put("dims", resolveInt(dynamicConfig, "rag.embedding.dims", RuntimeConfigDefaults.EMBEDDING_DIMS));
         embedding.put("batchSize", resolveInt(dynamicConfig, "rag.embedding.batchSize", RuntimeConfigDefaults.EMBEDDING_BATCH_SIZE));
         embedding.put("normalizeEmbeddings", resolveBoolean(dynamicConfig, "rag.embedding.normalizeEmbeddings", RuntimeConfigDefaults.EMBEDDING_NORMALIZE));
+        embedding.put("service", buildEmbeddingServiceConfig(dynamicConfig, true));
 
         Map<String, Object> retrieval = new LinkedHashMap<>();
         retrieval.put("topK", resolveInt(dynamicConfig, "rag.retrieval.topK", RuntimeConfigDefaults.RETRIEVAL_TOP_K));
@@ -436,11 +449,13 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
     private Map<String, Object> buildRagConfig(Map<String, String> dynamicConfig) {
         Map<String, Object> map = new LinkedHashMap<>();
         Map<String, Object> embeddingConfig = new LinkedHashMap<>();
+        embeddingConfig.put("source", resolveString(dynamicConfig, "rag.embedding.source", RuntimeConfigDefaults.EMBEDDING_SOURCE));
         embeddingConfig.put("modelPath", resolveString(dynamicConfig, "rag.embedding.model.path", RuntimeConfigDefaults.EMBEDDING_MODEL_PATH));
         embeddingConfig.put("device", resolveString(dynamicConfig, "rag.embedding.device", RuntimeConfigDefaults.EMBEDDING_DEVICE));
         embeddingConfig.put("dims", resolveInt(dynamicConfig, "rag.embedding.dims", RuntimeConfigDefaults.EMBEDDING_DIMS));
         embeddingConfig.put("batchSize", resolveInt(dynamicConfig, "rag.embedding.batchSize", RuntimeConfigDefaults.EMBEDDING_BATCH_SIZE));
         embeddingConfig.put("normalizeEmbeddings", resolveBoolean(dynamicConfig, "rag.embedding.normalizeEmbeddings", RuntimeConfigDefaults.EMBEDDING_NORMALIZE));
+        embeddingConfig.put("service", buildEmbeddingServiceConfig(dynamicConfig, false));
 
         Map<String, Object> retrievalConfig = new LinkedHashMap<>();
         retrievalConfig.put("topK", resolveInt(dynamicConfig, "rag.retrieval.topK", RuntimeConfigDefaults.RETRIEVAL_TOP_K));
@@ -459,6 +474,40 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
         map.put("chunk", chunkConfig);
         map.put("history", historyConfig);
         return map;
+    }
+
+    /**
+     * 构建 Embedding 在线服务配置块。
+     *
+     * <p>endpoint/密钥从 llm_provider_config 实时读取, 避免重复存储。
+     * @param includeApiKey true 时返回 apiKey (供 Python override), false 时仅返回 apiKeyConfigured (供前端展示)
+     */
+    private Map<String, Object> buildEmbeddingServiceConfig(Map<String, String> dynamicConfig, boolean includeApiKey) {
+        Map<String, Object> service = new LinkedHashMap<>();
+        String provider = resolveString(dynamicConfig, "rag.embedding.service.provider", "");
+        service.put("provider", provider);
+        service.put("modelName", resolveString(dynamicConfig, "rag.embedding.service.model", ""));
+        service.put("dims", resolveInt(dynamicConfig, "rag.embedding.service.dims", 0));
+        String endpoint = "";
+        String apiKey = "";
+        if (provider != null && !provider.isBlank()) {
+            try {
+                LlmProviderConfigEntity entity = llmProviderConfigMapper.selectLatestByProviderName(provider);
+                if (entity != null) {
+                    endpoint = entity.getEndpoint() == null ? "" : entity.getEndpoint();
+                    apiKey = entity.getApiKeyEncrypted() == null ? "" : entity.getApiKeyEncrypted();
+                }
+            } catch (Exception ex) {
+                log.warn("Embedding 在线服务商配置读取失败 (provider={}): {}", provider, ex.getMessage());
+            }
+        }
+        service.put("baseUrl", endpoint);
+        if (includeApiKey) {
+            service.put("apiKey", apiKey);
+        } else {
+            service.put("apiKeyConfigured", !apiKey.isBlank());
+        }
+        return service;
     }
 
     private Map<String, Object> buildServiceConfig(Map<String, String> dynamicConfig) {

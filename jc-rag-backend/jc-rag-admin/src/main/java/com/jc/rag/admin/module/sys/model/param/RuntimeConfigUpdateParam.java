@@ -46,6 +46,18 @@ public class RuntimeConfigUpdateParam {
 
     private Boolean embeddingNormalizeEmbeddings;
 
+    /** Embedding 来源: local=本地模型, service=在线模型服务; 空值按 local 处理 (兼容旧前端) */
+    private String embeddingSource;
+
+    /** embeddingSource=service 时选中的服务商 (llm_provider_config.provider_name) */
+    private String embeddingServiceProvider;
+
+    /** embeddingSource=service 时选中的 Embedding 模型名 */
+    private String embeddingServiceModel;
+
+    /** embeddingSource=service 时的向量维度 (0=自动) */
+    private Integer embeddingServiceDims;
+
     @NotNull @Min(0) @Max(2)
     private Double temperature;
 
@@ -96,6 +108,14 @@ public class RuntimeConfigUpdateParam {
     public void setEmbeddingBatchSize(Integer embeddingBatchSize) { this.embeddingBatchSize = embeddingBatchSize; }
     public Boolean getEmbeddingNormalizeEmbeddings() { return embeddingNormalizeEmbeddings; }
     public void setEmbeddingNormalizeEmbeddings(Boolean embeddingNormalizeEmbeddings) { this.embeddingNormalizeEmbeddings = embeddingNormalizeEmbeddings; }
+    public String getEmbeddingSource() { return embeddingSource; }
+    public void setEmbeddingSource(String embeddingSource) { this.embeddingSource = embeddingSource; }
+    public String getEmbeddingServiceProvider() { return embeddingServiceProvider; }
+    public void setEmbeddingServiceProvider(String embeddingServiceProvider) { this.embeddingServiceProvider = embeddingServiceProvider; }
+    public String getEmbeddingServiceModel() { return embeddingServiceModel; }
+    public void setEmbeddingServiceModel(String embeddingServiceModel) { this.embeddingServiceModel = embeddingServiceModel; }
+    public Integer getEmbeddingServiceDims() { return embeddingServiceDims; }
+    public void setEmbeddingServiceDims(Integer embeddingServiceDims) { this.embeddingServiceDims = embeddingServiceDims; }
     public Double getTemperature() { return temperature; }
     public void setTemperature(Double temperature) { this.temperature = temperature; }
     public Double getTopP() { return topP; }

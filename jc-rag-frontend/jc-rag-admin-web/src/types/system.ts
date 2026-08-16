@@ -36,11 +36,19 @@ export interface RuntimeConfigResponse {
   }
   rag: {
     embedding: {
+      source: 'local' | 'service' | string
       modelPath: string
       device: string
       dims: number
       batchSize: number
       normalizeEmbeddings: boolean
+      service: {
+        provider: string
+        modelName: string
+        dims: number
+        baseUrl: string
+        apiKeyConfigured: boolean
+      }
     }
     retrieval: {
       topK: number
@@ -79,6 +87,10 @@ export interface RuntimeConfigUpdateRequest {
   embeddingDims: number
   embeddingBatchSize: number
   embeddingNormalizeEmbeddings: boolean
+  embeddingSource?: string
+  embeddingServiceProvider?: string
+  embeddingServiceModel?: string
+  embeddingServiceDims?: number
   temperature: number
   topP: number
   maxTokens: number
