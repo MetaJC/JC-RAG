@@ -49,14 +49,16 @@ jc-rag-pro/
 │       └── analytics/                         ← 知识库分析
 │
 ├── jc-rag-pro-enterprise/                    ← 商业版编排层 (双启动模块)
-│   ├── jc-rag-pro-app-admin/                 ← Admin 端启动模块 (port 8080)
+│   ├── jc-rag-pro-app-admin/                 ← Admin 端启动模块 (port 8090)
 │   │   ├── pom.xml                            ← 依赖 jc-rag-admin + jc-rag-pro
 │   │   ├── docker/Dockerfile
+│   │   ├── config/                            ← 唯一配置来源 (jar 内不再打包 yml)
+│   │   │   ├── application.yml                ← 环境无关项 (默认 active: dev)
+│   │   │   ├── application-dev.yml            ← 开发环境
+│   │   │   └── application-pro.yml            ← 生产环境 (环境变量占位符)
 │   │   └── src/main/
-│   │       ├── java/com/jc/rag/admin/AdminProApplication.java
+│   │       ├── java/com/jc/rag/pro/admin/AdminProApplication.java
 │   │       └── resources/
-│   │           ├── application.yml            ← 默认 pro 模式
-│   │           ├── application-pro.yml
 │   │           └── static/                    ← 前端构建产物 (build-pro.sh 注入)
 │   ├── jc-rag-pro-app-user/                  ← User 端启动模块 (port 8082)
 │   │   ├── pom.xml                            ← 依赖 jc-rag-user + jc-rag-pro

@@ -16,26 +16,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     base-url: http://localhost:11434
  *     chat-path: /api/chat
  *     tags-path: /api/tags
- *   lmstudio:
- *     base-url: http://localhost:1234
- *   elasticsearch:
- *     base-url: http://localhost:9200
- *   minio:
- *     endpoint: http://localhost:9000
  *   frontend:
  *     base-url: http://localhost:5173
  *   admin-backend:
  *     base-url: http://localhost:8080
  * </pre>
+ *
+ * <p>注意: ollama 运行时实际地址由后台页面配置 (sys_config model.offline.ollama.*),
+ * 本类 ollama 配置仅用于启动日志展示; 已移除无代码引用的 lmstudio / elasticsearch /
+ * service.minio 配置 (MinIO 实际走 storage.minio.*, ES 实际走 elasticsearch.url).
+ * @author JC
  */
 @ConfigurationProperties(prefix = "service")
 public class ExternalServiceProperties {
 
     private Python python = new Python();
     private Ollama ollama = new Ollama();
-    private Lmstudio lmstudio = new Lmstudio();
-    private Elasticsearch elasticsearch = new Elasticsearch();
-    private Minio minio = new Minio();
     private Frontend frontend = new Frontend();
     private AdminBackend adminBackend = new AdminBackend();
 
@@ -44,15 +40,6 @@ public class ExternalServiceProperties {
 
     public Ollama getOllama() { return ollama; }
     public void setOllama(Ollama ollama) { this.ollama = ollama; }
-
-    public Lmstudio getLmstudio() { return lmstudio; }
-    public void setLmstudio(Lmstudio lmstudio) { this.lmstudio = lmstudio; }
-
-    public Elasticsearch getElasticsearch() { return elasticsearch; }
-    public void setElasticsearch(Elasticsearch elasticsearch) { this.elasticsearch = elasticsearch; }
-
-    public Minio getMinio() { return minio; }
-    public void setMinio(Minio minio) { this.minio = minio; }
 
     public Frontend getFrontend() { return frontend; }
     public void setFrontend(Frontend frontend) { this.frontend = frontend; }
@@ -81,24 +68,6 @@ public class ExternalServiceProperties {
         public void setChatPath(String chatPath) { this.chatPath = chatPath; }
         public String getTagsPath() { return tagsPath; }
         public void setTagsPath(String tagsPath) { this.tagsPath = tagsPath; }
-    }
-
-    public static class Lmstudio {
-        private String baseUrl = "http://localhost:1234";
-        public String getBaseUrl() { return baseUrl; }
-        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
-    }
-
-    public static class Elasticsearch {
-        private String baseUrl = "http://localhost:9200";
-        public String getBaseUrl() { return baseUrl; }
-        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
-    }
-
-    public static class Minio {
-        private String endpoint = "http://localhost:9000";
-        public String getEndpoint() { return endpoint; }
-        public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
     }
 
     public static class Frontend {

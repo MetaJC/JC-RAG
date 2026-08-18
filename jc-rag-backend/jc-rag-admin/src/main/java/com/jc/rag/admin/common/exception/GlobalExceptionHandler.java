@@ -18,6 +18,8 @@ import org.springframework.security.authentication.InsufficientAuthenticationExc
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.ModelAndView;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -109,6 +111,27 @@ public class GlobalExceptionHandler {
         log.warn("[鉴权拒绝] {} {}: {}", req.getMethod(), req.getRequestURI(), e.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
             .body(R.fail(403, e.getMessage()));
+    }
+
+    /**
+     * 静态资源未找到 (Spring 6.1+ 抛 {@link NoResourceFoundException}): SPA 路由回退.
+     * <p>Boot 3.2+ 下 ResourceHttpRequestHandler 对缺失资源直接抛异常, 若被下方
+     * {@code Exception.class} 兜底拦截会返回 500 JSON, 且请求到不了错误派发环节,
+     * SpaWebMvcConfig 的 ErrorViewResolver 永远不会触发; 故在此独立处理:
+     * <ul>
+     *   <li>非 API 路径 → 转发 index.html, 交由前端 Vue Router 接管 (history 模式刷新子路由)</li>
+     *   <li>API / actuator / internal 路径 → 重新抛出, 保持 404 语义</li>
+     * </ul>
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ModelAndView handleNoResource(NoResourceFoundException e, HttpServletRequest req)
+            throws NoResourceFoundException {
+        String path = req.getRequestURI();
+        if (path.startsWith("/api/") || path.startsWith("/actuator/") || path.startsWith("/internal/")) {
+            throw e;
+        }
+        log.debug("[SPA 回退] {} {} -> forward:/index.html", req.getMethod(), path);
+        return new ModelAndView("forward:/index.html");
     }
 
     @ExceptionHandler(Exception.class)

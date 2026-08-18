@@ -56,19 +56,19 @@ public class RagServerApplication {
     @EventListener(ApplicationReadyEvent.class)
     public void printAccessUrls() {
         String serverPort = environment.getProperty("server.port", "8080");
-        // URL 全部走 yml 配置，不再硬编码
-        String adminBase = externalServices.getAdminBackend().getBaseUrl();
+        String contextPath = environment.getProperty("server.servlet.context-path", "/");
+        if (!contextPath.startsWith("/")) {
+            contextPath = "/" + contextPath;
+        }
+        // 本服务地址由实际监听端口拼出, 不再依赖 yml 的 service.admin-backend (已移除)
+        String adminBase = "http://localhost:" + serverPort + ("/".equals(contextPath) ? "" : contextPath);
+        // Python RAG 地址走 yml 配置 (service.python.rag.base-url), sys_config 有值时运行时以 sys_config 为准
         String pythonRagBase = externalServices.getPython().getRag().getBaseUrl();
-        String frontendBase = externalServices.getFrontend().getBaseUrl();
-        String ollamaBaseUrl = externalServices.getOllama().getBaseUrl();
-        String ollamaTagsPath = externalServices.getOllama().getTagsPath();
 
         log.info("App: {} {} ({})", appProperties.getName(), appProperties.getVersion(), appProperties.getDeploymentMode());
         log.info("SpringBoot API: {}/api/system/runtime-config", adminBase);
         log.info("SpringBoot Health: {}/api/health/basic", adminBase);
         log.info("Python RAG: {}/health", pythonRagBase);
-        log.info("Frontend: {}/system/settings", frontendBase);
-        log.info("Ollama Tags: {}{}", ollamaBaseUrl, ollamaTagsPath);
 
         // 异步尝试拉取一次运行时配置，验证 DB 可达
         try {

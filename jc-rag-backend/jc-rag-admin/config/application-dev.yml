@@ -1,3 +1,9 @@
+# =============================================================================
+# jc-rag-admin 开发环境配置 (profile: dev)
+# -----------------------------------------------------------------------------
+# 仅存放开发环境专属值: 本地数据源 / 本地服务地址.
+# 环境无关配置见 application.yml, 生产部署见 application-etc.yml.
+# =============================================================================
 spring:
   datasource:
     url: jdbc:mysql://localhost:3308/jc_rag?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
@@ -9,10 +15,6 @@ spring:
       host: localhost
       port: 6379
       timeout: 3000ms
-  messages:
-    basename: i18n/messages
-    encoding: UTF-8
-    fallback-to-system-locale: false
 
 knowledge:
   upload:
@@ -34,24 +36,15 @@ knowledge:
 service:
   python:
     rag:
+      # [兜底默认值] 运行时优先读取 sys_config 的 service.python.rag.baseUrl;
+      # 系统读取不到有效值时, 才以本配置文件的值作为默认值.
       base-url: http://localhost:8001
-  ollama:
-    base-url: http://localhost:11434
-    chat-path: /api/chat
-    tags-path: /api/tags
-  lmstudio:
-    base-url: http://localhost:1234
-  elasticsearch:
-    base-url: http://localhost:9200
-  minio:
-    endpoint: http://localhost:9000
-  frontend:
-    base-url: http://localhost:5173
-  admin-backend:
-    base-url: http://localhost:8080
+  # 已清理无代码引用的死配置: service.lmstudio / service.minio / service.elasticsearch
+  # (MinIO 实际走 storage.minio.*, ES 实际走 elasticsearch.url, Ollama 运行时由后台页面配置)
 
 storage:
   minio:
+    # [本地默认值] 当前 MinIO 配置仅由配置文件生效, 暂无后台覆盖入口.
     endpoint: http://localhost:9000
     access-key: minioadmin
     secret-key: minioadmin
@@ -59,19 +52,5 @@ storage:
       documents: jc-rag-docs
 
 elasticsearch:
+  # [本地默认值] 当前仅由配置文件生效, 暂无后台覆盖入口 (健康检查探测用).
   url: http://localhost:9200
-
-
-# ============ RBAC 默认配置 (可被环境覆盖) ============
-app:
-  rbac:
-    default-password: 123456
-    developer-username: developer
-    reserved-user-types:
-      - DEVELOPER
-    sensitive-fields:
-      - password
-      - newPassword
-      - oldPassword
-      - oldPwd
-      - pwd
