@@ -44,7 +44,6 @@ src/api/
 | 模型服务商 | fetchModelProviders / saveModelProvider / refreshProviderModels / testModelProvider |
 | 模型目录 | fetchModelCatalog / refreshModelCatalog（三层同步：L1 内置 / L2 远程 / L3 账户实时刷新） |
 | 扩展     | fetchOllamaModels / fetchDevices / fetchSystemResources / verifyModel / browseDirectory |
-| Demo     | fetchDemoConfig / updateDemoConfig / fetchRoleQuotas / saveRoleQuota / checkQuota |
 | ApiKey   | fetchUserApiKeys / fetchActiveApiKey / saveUserApiKey / toggleUserApiKey / deleteUserApiKey |
 
 ## rag.ts 暴露的方法
@@ -93,8 +92,6 @@ src/api/
 | /api/admin/prompts                     | /api/rag/prompt                    | RagPromptController             |
 | /api/admin/skills                      | /api/rag/skill                     | RagSkillController              |
 | /api/admin/agents                      | /api/rag/agent                     | RagAgentController              |
-| /api/admin/demo-config                 | /api/sys/demo-config               | SysDemoModeController           |
-| /api/admin/demo-config/role-quotas     | /api/sys/role-quotas               | SysDemoModeController           |
 | /api/system/devices                    | /api/sys/devices (推荐) / /api/sys/_legacy/devices (兜底) | SysExtraController    |
 | /api/system/embedding/verify           | /api/sys/embedding/verify (推荐) / /api/sys/_legacy/embedding/verify (兜底) | SysExtraController |
 | /api/system/browse-directory           | /api/sys/browse-directory (推荐) / /api/sys/_legacy/browse-directory (兜底) | SysExtraController |

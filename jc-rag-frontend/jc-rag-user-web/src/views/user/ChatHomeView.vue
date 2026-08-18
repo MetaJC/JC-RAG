@@ -817,10 +817,12 @@ async function onAsk() {
       body: JSON.stringify({ question: q, deepThinking: deepThinking.value, agentId: selectedAgentId.value, customAgentId: activeCustomAgentId.value, kbId: selectedKnowledgeBaseId.value, attachments: attachmentsPayload }),
     })
     if (!response.ok) {
-      let errMsg = '提问失败'
-      try { const err = await response.json(); errMsg = err.error || err.message || errMsg } catch {}
+      // 优先展示后端返回的真实提示 (如演示模式超限文案), 仅在无消息时回落默认文案
+      let errMsg = ''
+      try { const err = await response.json(); errMsg = err.error || err.message || '' } catch {}
       if (response.status === 401) errMsg = '登录已失效，请重新登录'
-      if (response.status === 429) errMsg = '提问今日次数已达限制，请配置私有 API Keys 继续使用'
+      else if (response.status === 429 && !errMsg) errMsg = '提问今日次数已达限制，请配置私有 API Keys 继续使用'
+      if (!errMsg) errMsg = '提问失败'
       assistantMsg.messageContent = errMsg; assistantMsg.pending = false; assistantMsg.thinkingActive = false
       streaming.value = false
       currentAbortController = null

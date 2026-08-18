@@ -26,7 +26,6 @@
 | SysHealthController     | /api/sys/health/services          | 服务健康 (Spring/Python/ES) |
 | SysHealthBasicController| /api/health/basic                 | 基础健康 (白名单)          |
 | SysExtraController      | /api/sys/{ollama/models,devices,resources,embedding/verify,browse-directory} + /api/sys/_legacy/{devices,embedding/verify,browse-directory} | Ollama/设备/资源/模型验证/目录；_legacy 兼容旧 /api/system/** |
-| SysDemoModeController   | /api/sys/{demo-config,role-quotas,quota/check} | 演示模式/角色配额 |
 | SysApiKeyController     | /api/sys/api-keys                 | C 端用户 API Key 管理      |
 | SysLegalDocController   | /api/sys/legal-doc                | 用户协议 / 隐私政策 (A 端管理) |
 | DictController          | /api/sys/dict                     | 字典                       |

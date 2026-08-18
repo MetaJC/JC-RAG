@@ -20,17 +20,14 @@ import com.jc.rag.domain.entity.chat.ChatMessageEntity;
 import com.jc.rag.domain.entity.chat.ChatSessionEntity;
 import com.jc.rag.domain.entity.chat.ChatSessionSummaryEntity;
 import com.jc.rag.domain.entity.chat.UserApiKeyEntity;
-import com.jc.rag.domain.entity.chat.UserQuotaUsageEntity;
 import com.jc.rag.domain.entity.rag.RagAgentEntity;
 import com.jc.rag.domain.entity.sys.SysConfigEntity;
 import com.jc.rag.domain.mapper.chat.ChatMessageMapper;
 import com.jc.rag.domain.mapper.chat.ChatSessionMapper;
 import com.jc.rag.domain.mapper.chat.ChatSessionSummaryMapper;
 import com.jc.rag.domain.mapper.chat.UserApiKeyMapper;
-import com.jc.rag.domain.mapper.chat.UserQuotaUsageMapper;
 import com.jc.rag.domain.mapper.rag.RagAgentMapper;
 import com.jc.rag.domain.mapper.user.UserCustomAgentMapper;
-import com.jc.rag.domain.mapper.sys.DemoConfigMapper;
 import com.jc.rag.domain.mapper.sys.SysConfigMapper;
 import com.jc.rag.user.module.chat.model.vo.AskResponseVO;
 import com.jc.rag.user.module.chat.model.vo.ChatMessageVO;
@@ -56,7 +53,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -116,10 +112,8 @@ public class UserChatServiceImpl implements UserChatService {
     private final ChatMessageMapper messageMapper;
     private final ChatSessionSummaryMapper summaryMapper;
     private final UserApiKeyMapper apiKeyMapper;
-    private final UserQuotaUsageMapper quotaMapper;
     private final SysConfigMapper configMapper;
     private final RagAgentMapper agentMapper;
-    private final DemoConfigMapper demoConfigMapper;
     private final com.jc.rag.domain.mapper.knowledge.KbKnowledgeBaseMapper kbMapper;
     private final ObjectMapper objectMapper;
     private final UserMemoryProfileService userMemoryProfileService;
@@ -141,8 +135,8 @@ public class UserChatServiceImpl implements UserChatService {
 
     public UserChatServiceImpl(ChatSessionMapper s, ChatMessageMapper m, ChatSessionSummaryMapper sm,
                                UserApiKeyMapper a,
-                               UserQuotaUsageMapper q, SysConfigMapper c, RagAgentMapper am,
-                               DemoConfigMapper dc, com.jc.rag.domain.mapper.knowledge.KbKnowledgeBaseMapper kb,
+                               SysConfigMapper c, RagAgentMapper am,
+                               com.jc.rag.domain.mapper.knowledge.KbKnowledgeBaseMapper kb,
                                ObjectMapper om,
                                UserMemoryProfileService ump,
                                UserSensitiveWordCache sensitiveCache,
@@ -155,10 +149,8 @@ public class UserChatServiceImpl implements UserChatService {
         this.messageMapper = m;
         this.summaryMapper = sm;
         this.apiKeyMapper = a;
-        this.quotaMapper = q;
         this.configMapper = c;
         this.agentMapper = am;
-        this.demoConfigMapper = dc;
         this.kbMapper = kb;
         this.objectMapper = om;
         this.userMemoryProfileService = ump;
@@ -174,44 +166,6 @@ public class UserChatServiceImpl implements UserChatService {
         ChatSessionEntity s = sessionMapper.selectById(sessionId);
         if (s == null) throw new RuntimeException("会话不存在");
         if (!s.getUserId().equals(userId)) throw new RuntimeException("无权访问此会话");
-    }
-
-    private void checkDailyQuota(Long userId) {
-        boolean hasKey = apiKeyMapper.selectCount(
-            new QueryWrapper<UserApiKeyEntity>().eq("user_id", userId).eq("is_active", 1)) > 0;
-        if (hasKey) return;
-        int dailyLimit = Integer.MAX_VALUE;
-        boolean demoEnabled = false;
-        try {
-            Map<String, Object> dc = demoConfigMapper.selectOne().stream().findFirst().orElse(Map.of());
-            demoEnabled = ((Number) dc.getOrDefault("demo_mode_enabled", 0)).intValue() == 1;
-            dailyLimit = ((Number) dc.getOrDefault("default_quota_per_day", 5)).intValue();
-        } catch (Exception ignored) {}
-        if (!demoEnabled) return;
-        UserQuotaUsageEntity todayUsage = quotaMapper.selectOne(
-            new QueryWrapper<UserQuotaUsageEntity>().eq("user_id", userId).eq("usage_date", LocalDate.now())
-        );
-        int used = todayUsage != null ? todayUsage.getQueryCount() : 0;
-        if (used >= dailyLimit) {
-            throw new RuntimeException("提问今日次数已达限制（限额 " + dailyLimit + " 次），请配置私有 API Keys 继续使用，或明日再试");
-        }
-    }
-
-    private void recordUsage(Long userId) {
-        LocalDate today = LocalDate.now();
-        UserQuotaUsageEntity uq = quotaMapper.selectOne(
-            new QueryWrapper<UserQuotaUsageEntity>().eq("user_id", userId).eq("usage_date", today));
-        if (uq != null) {
-            uq.setQueryCount(uq.getQueryCount() + 1);
-            quotaMapper.updateById(uq);
-        } else {
-            uq = new UserQuotaUsageEntity();
-            uq.setUserId(userId);
-            uq.setUsageDate(today);
-            uq.setQueryCount(1);
-            uq.setTokensUsed(0);
-            quotaMapper.insert(uq);
-        }
     }
 
     @Override
@@ -349,7 +303,6 @@ public class UserChatServiceImpl implements UserChatService {
         verifyOwnership(userId, sessionId);
         enforceInputSecurity(question, userId, sessionId);
         Long resolvedAgentId = resolveActiveAgentId(agentId, customAgentId);
-        checkDailyQuota(userId);
         int nextIdx = Optional.ofNullable(messageMapper.selectCount(new QueryWrapper<ChatMessageEntity>().eq("session_id", sessionId))).orElse(0L).intValue() + 1;
         boolean shouldGenerateTitle = shouldGenerateTitle(sessionId, nextIdx);
         insertMsg(sessionId, "USER", question, nextIdx, 0, 0);
@@ -375,7 +328,6 @@ public class UserChatServiceImpl implements UserChatService {
         insertMsg(sessionId, "ASSISTANT", answer, nextIdx + 1, 0, latency);
         recordRagCallLog(userId, sessionId, question, null, askSuccess, latency, askError);
         touchSession(sessionId);
-        recordUsage(userId);
         // L1 摘要压缩: 累计轮数达到阈值时, 异步压缩最前 N 轮原文
         maybeTriggerSummary(userId, sessionId, nextIdx + 1);
         // L2 长期事实: 每轮都异步提取 fact 入库 (用户关闭时跳过)
@@ -433,7 +385,6 @@ public class UserChatServiceImpl implements UserChatService {
             String streamError = null;
             long started = System.currentTimeMillis();
             try {
-                checkDailyQuota(userId);
                 enforceInputSecurity(question, userId, sessionId);
                 Long resolvedAgentId = resolveActiveAgentId(agentId, customAgentId);
                 Map<String, Object> payload = buildPayload(userId, sessionId, question, deepThinking, resolvedAgentId, customAgentId, overrideKbId, attachments);
@@ -504,7 +455,6 @@ public class UserChatServiceImpl implements UserChatService {
                 ok && streamError == null && !fullAnswer.isEmpty(),
                 System.currentTimeMillis() - started, streamError);
             touchSession(sessionId);
-            if (ok) recordUsage(userId);
             // L1 摘要压缩: 累计轮数达到阈值时, 异步压缩最前 N 轮原文 (失败/无答案也尝试, 避免漏触发)
             maybeTriggerSummary(userId, sessionId, nextIdx + 1);
             // L2 长期事实: 每轮都异步提取 fact 入库 (用户关闭时跳过)

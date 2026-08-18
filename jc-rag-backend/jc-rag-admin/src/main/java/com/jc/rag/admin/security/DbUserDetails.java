@@ -1,8 +1,8 @@
 package com.jc.rag.admin.security;
 
+import com.jc.rag.common.security.RagPrincipal;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -18,7 +18,7 @@ import java.util.List;
  *
  * @author JC
  */
-public class DbUserDetails implements UserDetails {
+public class DbUserDetails implements RagPrincipal {
 
     private final Long userId;
     private final String username;

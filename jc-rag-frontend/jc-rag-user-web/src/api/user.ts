@@ -40,9 +40,8 @@ export const userApi = {
   // API Key
   listApiKeys: () => request.get('/user/api-keys').then(r => r.data),
   saveApiKey: (data: any) => request.post('/user/api-keys', data).then(r => r.data),
+  toggleApiKey: (id: number, active: boolean) => request.post(`/user/api-keys/${id}/toggle`, { active }).then(r => r.data),
   deleteApiKey: (id: number) => request.delete(`/user/api-keys/${id}`).then(r => r.data),
-  // 用量
-  checkQuota: () => request.get('/user/quota').then(r => r.data),
   // 问答
   listSessions: () =>
     request.get('/chat/sessions').then(r => {

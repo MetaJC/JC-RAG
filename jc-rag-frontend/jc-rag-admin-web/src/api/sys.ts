@@ -2,7 +2,7 @@ import type { BrowseDirectoryResult, DeviceItem, HealthItem, ModelVerifyResult, 
 import { request } from './http'
 
 /**
- * sys 模块 API：用户/角色/权限/菜单/Dashboard + 运行时配置/健康/扩展/Demo 模式/API Key 统一管理。
+ * sys 模块 API：用户/角色/权限/菜单/Dashboard + 运行时配置/健康/扩展/API Key 统一管理。
  * <p>路径规则: 控制器类级 @RequestMapping = /api/sys/&lt;resource&gt; (单数), 与文件路径一一对应。
  */
 
@@ -262,33 +262,6 @@ export async function downloadLocalModel(modelId: string) {
 
 export async function activateModelProvider(id: number) {
   const { data } = await request.post(`/model/providers/${id}/activate`)
-  return data
-}
-
-/* ============== Demo 模式 / 角色配额 ============== */
-
-export async function fetchDemoConfig() {
-  const { data } = await request.get('/sys/demo-config')
-  return data
-}
-
-export async function updateDemoConfig(payload: Record<string, unknown>) {
-  const { data } = await request.put('/sys/demo-config', payload)
-  return data
-}
-
-export async function fetchRoleQuotas() {
-  const { data } = await request.get('/sys/role-quotas')
-  return data
-}
-
-export async function saveRoleQuota(payload: Record<string, unknown>) {
-  const { data } = await request.post('/sys/role-quotas', payload)
-  return data
-}
-
-export async function checkQuota() {
-  const { data } = await request.get('/sys/quota/check')
   return data
 }
 

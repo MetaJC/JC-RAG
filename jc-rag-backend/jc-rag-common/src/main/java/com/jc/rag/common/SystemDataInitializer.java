@@ -11,7 +11,7 @@ import java.nio.file.Path;
 
 /**
  * 系统首次启动数据初始化。
- * 创建 developer 兜底账号、admin 超级管理员账号、默认角色/权限、演示配置、系统提示词。
+ * 创建 developer 兜底账号、admin 超级管理员账号、默认角色/权限、系统提示词。
  * developer: 跳过所有鉴权，仅自身可见，不可删除
  * admin: 拥有全部权限但需鉴权
  */
@@ -43,7 +43,6 @@ public class SystemDataInitializer implements ApplicationRunner {
             initPermissions();
             initUserRoles();
             initRolePermissions();
-            initDemoConfig();
             initPrompts();
             initSkillsAndAgents();
 
@@ -111,7 +110,6 @@ public class SystemDataInitializer implements ApplicationRunner {
             {"admin:agents:edit", "Agent编辑", "BUTTON", null, null},
             {"admin:users", "用户管理", "MENU", "/admin/users", "GET"},
             {"admin:users:edit", "用户编辑", "BUTTON", null, null},
-            {"admin:demo-config", "演示模式配置", "MENU", "/admin/demo-config", "GET"},
             {"admin:data-permissions", "数据权限", "MENU", "/admin/data-permissions", "GET"},
             {"admin:knowledge-bases", "知识库管理", "MENU", "/admin/knowledge-bases", "GET"},
             {"user:chat", "问答功能", "API", "/api/chat/**", null},
@@ -145,13 +143,6 @@ public class SystemDataInitializer implements ApplicationRunner {
         Long superRoleId = jdbcTemplate.query("SELECT id FROM sys_role WHERE role_code=?", rs -> rs.next() ? rs.getLong("id") : null, "super_admin");
         if (superRoleId != null) {
             jdbcTemplate.update("INSERT IGNORE INTO sys_role_permission (role_id, permission_id) SELECT ?, id FROM sys_permission", superRoleId);
-        }
-    }
-
-    private void initDemoConfig() {
-        Integer exists = jdbcTemplate.query("SELECT COUNT(*) FROM demo_config", rs -> rs.next() ? rs.getInt(1) : 0);
-        if (exists == null || exists == 0) {
-            jdbcTemplate.update("INSERT INTO demo_config (demo_mode_enabled, default_quota_per_day, default_tokens_per_q, default_tokens_per_day, upgrade_hint) VALUES (0, 20, 2048, 10000, '当日额度已用完。请在个人中心配置您自己的 API Key 以继续使用。')");
         }
     }
 

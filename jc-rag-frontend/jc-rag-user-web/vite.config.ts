@@ -4,7 +4,9 @@ import path from 'node:path'
 
 export default defineConfig(({ mode }) => ({
   plugins: [vue()],
-  base: './',
+  // 必须用绝对 base: history 模式下后端子路由刷新时, 相对路径 './assets/...'
+  // 会按当前 URL 目录解析导致 JS 404 白屏.
+  base: '/',
   build: {
     outDir: mode === 'production'
       ? path.resolve(__dirname, '../../jc-rag-backend/jc-rag-user/src/main/resources/static')

@@ -401,9 +401,9 @@ jc-rag-pro/                                       ← 商业版仓库根
 | **前端打包** | 独立 SPA, 双 dist | community 各自 build → `admin-web/dist` + `user-web/dist`; pro 独立 build (admin / user 两 mode) → `pro-frontend/dist` |
 | **后端代码** | Maven 模块 + 依赖方向 | pro-core / pro-app-admin / pro-app-user 三个 Maven 模块, 引用 community 已 install 的 `jc-rag-admin` / `jc-rag-user` jar, **不直接引 community 源码** |
 | **后端 classpath** | 启动类扫描 | `AdminProApplication` (`com.jc.rag.pro`) `@ComponentScan(basePackages="com.jc.rag")` 扫整树, pro 增强实现靠 `@ConditionalOnProperty(jc-rag.edition=pro)` 激活 |
-| **后端静态资源** | ProStaticResourceConfig | pro-core 注册 `/pro-static/**` + `/pro-user-static/**` 两个 ResourceHandler, 指向 `classpath:/static/pro-static/` + `classpath:/static/pro-user-static/` (由 `build-pro.sh` 写入) |
-| **后端 SPA 路由** | ProSpaRoutingConfig | pro-core 注册 `ErrorViewResolver @Order(HIGHEST_PRECEDENCE)`, `/pro-static/**` 404 时 forward 到 pro-static/index.html; community 的 `SpaWebMvcConfig` 兜底处理其他路径 |
-| **Security** | community `anyRequest().permitAll()` | pro-static / pro-user-static 已被 community security 默认放行, **无需修改 community SecurityConfig** |
+| **后端静态资源** | static/ 根目录直接覆盖 | pro 前端 dist 由 `build-pro.sh` 拷到启动模块 `src/main/resources/static/` 根目录 (覆盖 community 构建产物, pro 前端已含全部 community 页面); Spring Boot 默认映射 `classpath:/static/**`, 无需自定义 ResourceHandler |
+| **后端 SPA 路由** | community SpaWebMvcConfig | history 模式子路由刷新 404 时, community `SpaWebMvcConfig` (ErrorViewResolver) 将非 API 路径 forward 到 `/index.html`; pro 启动模块依赖 community admin/user jar 自动继承, 无需 pro 专属配置 |
+| **Security** | community `anyRequest().permitAll()` | 静态资源已被 community security 默认放行, **无需修改 community SecurityConfig** |
 | **数据库** | 独立 datasource (下一阶段) | community + pro 各自 jc-rag-* 数据库, 通过 `application-pro.yml` 切换 (本阶段同源, 下一阶段独立) |
 
 ### 11.4 核心配置示例
@@ -465,9 +465,9 @@ packages:
    - jc-rag-user-web   →  dist/
    - jc-rag-pro-frontend (admin) →  dist/index.html
    - jc-rag-pro-frontend (user)  →  dist/index.html (重命名为 user-index.html)
-7. 复制 dist 到 enterprise 静态资源:
-   - admin jar:  static/ ← community admin + static/pro-static/ ← pro admin
-   - user  jar:  static/ ← community user  + static/pro-user-static/ ← pro user
+7. 复制 dist 到 enterprise 静态资源 (根路径单 SPA, 无嵌套前缀):
+   - admin jar:  static/ ← pro admin dist (覆盖 community admin)
+   - user  jar:  static/ ← pro user dist  (覆盖 community user)
 8. mvn package 2 个 enterprise 启动模块 → 2 个 fat jar
 ```
 
@@ -481,8 +481,8 @@ packages:
 | pro 前端 vite build (admin) | PASS | 11.56s, 308 modules |
 | pro 前端 vite build (user) | PASS | 13.18s, 308 modules |
 | community 前端 vite build | PASS | 12.98s, community 自身 src 直接构建 (不通过 pro 入口) |
-| community SecurityConfig 修改 | **NO** | pro-static/** 已被 `anyRequest().permitAll()` 覆盖, 无需改 community |
-| community SpaWebMvcConfig 修改 | **NO** | pro 路径走 `ProSpaRoutingConfig @Order(HIGHEST_PRECEDENCE)`, 社区 `SpaWebMvcConfig` 兜底其他路径 |
+| community SecurityConfig 修改 | **NO** | 静态资源已被 `anyRequest().permitAll()` 覆盖, 无需改 community |
+| community SpaWebMvcConfig 修改 | **NO** | pro 启动模块继承 community `SpaWebMvcConfig` 兜底 history 路由刷新 (v0.8 起取消 pro-static 嵌套前缀与 ProSpaRoutingConfig) |
 
 ### 11.7 与 v0.x 对比
 

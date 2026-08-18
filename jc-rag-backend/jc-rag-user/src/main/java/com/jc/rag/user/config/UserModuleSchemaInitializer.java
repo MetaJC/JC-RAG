@@ -39,21 +39,6 @@ public class UserModuleSchemaInitializer {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户自定义 API Key'
             """);
 
-        jdbcTemplate.execute("""
-            CREATE TABLE IF NOT EXISTS user_quota_usage (
-                id BIGINT NOT NULL AUTO_INCREMENT COMMENT '主键',
-                user_id BIGINT NOT NULL COMMENT '用户ID',
-                usage_date DATE NOT NULL COMMENT '使用日期',
-                query_count INT NOT NULL DEFAULT 0 COMMENT '当日问答次数',
-                tokens_used INT NOT NULL DEFAULT 0 COMMENT '当日Token消耗',
-                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY uk_user_date (user_id, usage_date),
-                KEY idx_usage_date (usage_date)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户用量日记录'
-            """);
-
         // 登录失败计数 (账号密码登录连续失败达到阈值后强制滑动验证)
         // 表名兼容: 历史库可能已将 sys_user 重命名为 rbac_user
         try {
@@ -105,6 +90,6 @@ public class UserModuleSchemaInitializer {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI 对话质量评估记录 (Pro 付费功能)'
             """);
 
-        log.info("C 端基础表结构检查完成: user_api_keys, user_quota_usage, sys_user.login_fail_count, sys_legal_doc, user_dialogue_evaluation");
+        log.info("C 端基础表结构检查完成: user_api_keys, sys_user.login_fail_count, sys_legal_doc, user_dialogue_evaluation");
     }
 }

@@ -164,7 +164,6 @@ npm run dev
 | 管理端权限管理 | http://localhost:5173/rbac/permissions | management |
 | 管理端提示词管理 | http://localhost:5173/prompts/manage | management |
 | 管理端 Agent & Skill | http://localhost:5173/agents/manage | management |
-| 管理端演示模式 | http://localhost:5173/demo/config | management |
 | 管理端数据权限 | http://localhost:5173/data/permissions | management |
 | C 端问答首页 | http://localhost:5175/ | user |
 | C 端个人中心 | http://localhost:5175/profile | user |

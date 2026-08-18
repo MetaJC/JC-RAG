@@ -1,19 +1,14 @@
 package com.jc.rag.user.module.user.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.jc.rag.common.web.vo.BaseOpResultVO;
 import com.jc.rag.domain.entity.rbac.RbacUserEntity;
-import com.jc.rag.domain.entity.chat.UserQuotaUsageEntity;
 import com.jc.rag.domain.mapper.rbac.RbacUserMapper;
-import com.jc.rag.domain.mapper.chat.UserQuotaUsageMapper;
 import com.jc.rag.user.module.user.model.param.ChangePasswordParam;
 import com.jc.rag.user.module.user.model.param.UserProfileUpdateParam;
 import com.jc.rag.user.module.user.model.vo.UserProfileVO;
 import com.jc.rag.user.module.user.service.UserProfileService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
 
 /**
  * 用户个人中心业务实现
@@ -24,12 +19,10 @@ import java.time.LocalDate;
 public class UserProfileServiceImpl implements UserProfileService {
 
     private final RbacUserMapper userMapper;
-    private final UserQuotaUsageMapper quotaMapper;
     private final PasswordEncoder passwordEncoder;
 
-    public UserProfileServiceImpl(RbacUserMapper userMapper, UserQuotaUsageMapper quotaMapper, PasswordEncoder passwordEncoder) {
+    public UserProfileServiceImpl(RbacUserMapper userMapper, PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
-        this.quotaMapper = quotaMapper;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -45,10 +38,6 @@ public class UserProfileServiceImpl implements UserProfileService {
         vo.setUserType(u.getUserType());
         vo.setLastLoginTime(u.getLastLoginTime());
         vo.setCreatedAt(u.getCreatedAt());
-        int qc = quotaMapper.selectCount(
-            new QueryWrapper<UserQuotaUsageEntity>().eq("user_id", userId).eq("usage_date", LocalDate.now())
-        ).intValue();
-        vo.setTodayQueries(qc);
         return vo;
     }
 

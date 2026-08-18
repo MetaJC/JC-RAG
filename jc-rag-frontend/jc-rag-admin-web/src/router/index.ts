@@ -13,7 +13,6 @@ const proExtensionRoutesBuilt: RouteRecordRaw[] =
 
 import AuditLogView from '../views/AuditLogView.vue'
 import DataPermissionView from '../views/DataPermissionView.vue'
-import DemoConfigView from '../views/DemoConfigView.vue'
 import KnowledgeBaseView from '../views/KnowledgeBaseView.vue'
 import KnowledgeBaseAuthView from '../views/KnowledgeBaseAuthView.vue'
 import LegalDocManageView from '../views/LegalDocManageView.vue'
@@ -37,7 +36,8 @@ import ModelParameterSettingsView from '../views/ModelParameterSettingsView.vue'
 import DeveloperOptionsView from '../views/DeveloperOptionsView.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  // base 跟随 vite base (import.meta.env.BASE_URL), dev/生产自动对齐
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
@@ -158,11 +158,6 @@ const router = createRouter({
           path: '/rag/agent',
           name: 'rag-agent',
           component: RagAgentManageView,
-        },
-        {
-          path: '/demo/config',
-          name: 'demo-config',
-          component: DemoConfigView,
         },
         {
           path: '/data/permissions',

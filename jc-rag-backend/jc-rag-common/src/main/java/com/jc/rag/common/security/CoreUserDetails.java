@@ -2,7 +2,6 @@ package com.jc.rag.common.security;
 
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
 import java.util.Collection;
 import java.util.List;
 
@@ -10,7 +9,7 @@ import java.util.List;
  * 核心用户认证对象，通用模块提供。
  * developer 用户将跳过所有鉴权检查。
  */
-public class CoreUserDetails implements UserDetails {
+public class CoreUserDetails implements RagPrincipal {
     private final Long userId;
     private final String username;
     private final String passwordHash;

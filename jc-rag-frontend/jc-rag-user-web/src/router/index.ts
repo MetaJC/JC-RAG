@@ -10,7 +10,8 @@ const proExtensionRoutesBuilt: RouteRecordRaw[] =
   builtMod['./pro-extension.built.ts']?.proExtensionRoutesBuilt ?? []
 
 const router = createRouter({
-  history: createWebHistory(),
+  // base 跟随 vite base (import.meta.env.BASE_URL), dev/生产自动对齐
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', redirect: '/chat' },
     { path: '/login', name: 'login', component: () => import('../views/user/LoginView.vue') },

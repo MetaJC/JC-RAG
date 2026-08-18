@@ -22,7 +22,6 @@ public class UserProfileVO implements Serializable {
     private String userType;
     private LocalDateTime lastLoginTime;
     private LocalDateTime createdAt;
-    private Integer todayQueries;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -40,6 +39,4 @@ public class UserProfileVO implements Serializable {
     public void setLastLoginTime(LocalDateTime lastLoginTime) { this.lastLoginTime = lastLoginTime; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    public Integer getTodayQueries() { return todayQueries; }
-    public void setTodayQueries(Integer todayQueries) { this.todayQueries = todayQueries; }
 }

@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 import { userApi, isUnauthorizedError, extractErrorMessage } from '../../api/user'
 
 const router = useRouter()
-const profile = ref({ nickname: '', email: '', phone: '', username: '', userType: '', todayQueries: 0 })
+const profile = ref({ nickname: '', email: '', phone: '', username: '', userType: '' })
 const passwordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
 const saving = ref(false)
 
@@ -14,7 +14,7 @@ onMounted(async () => {
     const user = await userApi.currentUser()
     if (!user.authenticated) { router.push('/login'); return }
     const p = await userApi.getProfile()
-    profile.value = { nickname: p.nickname || '', email: p.email || '', phone: p.phone || '', username: p.username || '', userType: p.userType || '', todayQueries: p.todayQueries || 0 }
+    profile.value = { nickname: p.nickname || '', email: p.email || '', phone: p.phone || '', username: p.username || '', userType: p.userType || '' }
   } catch (error) {
     if (isUnauthorizedError(error)) {
       router.push('/login')
@@ -73,7 +73,6 @@ async function changePassword() {
         </el-card>
         <el-card shadow="never" class="profile-card">
           <template #header>使用统计</template>
-          <div class="stat-row"><span>今日问答次数</span><strong>{{ profile.todayQueries }}</strong></div>
           <div class="stat-row"><span>账户状态</span><el-tag type="success">正常</el-tag></div>
         </el-card>
       </div>
