@@ -7,6 +7,8 @@ import com.jc.rag.admin.module.auth.model.vo.AuthUserVO;
 import com.jc.rag.admin.module.rbac.service.RbacMenuService;
 import com.jc.rag.admin.module.sys.service.OperationLogService;
 import com.jc.rag.admin.security.DbUserDetails;
+import com.jc.rag.common.enums.ResultCode;
+import com.jc.rag.common.exception.AuthException;
 import com.jc.rag.common.exception.BizException;
 import com.jc.rag.common.security.CaptchaService;
 import com.jc.rag.common.web.vo.BaseOpResultVO;
@@ -16,7 +18,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
+import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -64,14 +69,26 @@ public class AuthServiceImpl implements AuthService {
 
     /**
      * 登录并创建 Session。
+     * <p>认证异常统一转业务异常 (i18n 提示), 避免落入全局 500 兑底:
+     * 账号或密码错误 → auth.password.invalid; 禁用/锁定 → 对应 i18n key。
      */
     @Override
     public AuthUserVO login(LoginParam request, HttpServletRequest httpServletRequest) {
         if (!captchaService.consumeToken(request.getCaptchaToken())) {
             throw new BizException("请先完成滑动验证");
         }
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+        Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
+        } catch (DisabledException e) {
+            throw new AuthException(ResultCode.FAIL, "auth.user.disabled", new Object[0]);
+        } catch (LockedException e) {
+            throw new AuthException(ResultCode.FAIL, "auth.user.locked", new Object[0]);
+        } catch (BadCredentialsException e) {
+            // 用户名不存在与密码错误统一提示, 避免泄露账号是否存在
+            throw new AuthException(ResultCode.FAIL, "auth.password.invalid", new Object[0]);
+        }
 
         // 校验: 至少拥有一个 is_admin=1 的角色, 才有权登录管理端 (developer 账号绕过)
         DbUserDetails userDetails = (DbUserDetails) authentication.getPrincipal();

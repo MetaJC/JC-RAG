@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.jc</groupId>
+        <artifactId>jc-rag-parent</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>jc-rag-sms</artifactId>
+    <name>JC RAG SMS</name>
+    <description>
+        短信能力独立模块: 渠道抽象 (log/阿里云/腾讯云, 配置切换) + 验证码生命周期
+        (生成/限流/存储/校验, Redis). 通过 Spring Boot 自动装配注册,
+        不依赖启动类组件扫描, 供 user/admin 启动模块按需引入.
+    </description>
+
+    <properties>
+        <aliyun-dysmsapi.version>3.1.0</aliyun-dysmsapi.version>
+        <tencentcloud-sms.version>3.2.6</tencentcloud-sms.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <!-- 验证码存储与发送限流 (与主服务共享 Redis 实例) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- 阿里云短信 SDK -->
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>dysmsapi20170525</artifactId>
+            <version>${aliyun-dysmsapi.version}</version>
+        </dependency>
+        <!-- 腾讯云短信 SDK (仅 sms 子包, 避免全量 SDK) -->
+        <dependency>
+            <groupId>com.tencentcloudapi</groupId>
+            <artifactId>tencentcloud-sdk-java-sms</artifactId>
+            <version>${tencentcloud-sms.version}</version>
+        </dependency>
+    </dependencies>
+</project>

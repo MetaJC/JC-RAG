@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Iphone, Lock, Message, User } from '@element-plus/icons-vue'
 import { userApi } from '../../api/user'
 import SlideCaptcha from '../../components/SlideCaptcha.vue'
+import {
+  CAPTCHA_STATE_PREFIX, LOGIN_TAB_STORAGE_KEY, PHONE_STORAGE_KEY,
+  SESSION_READY_KEY, SMS_COUNTDOWN_KEY_PREFIX,
+} from '../../utils/login-state'
 
 type TabKey = 'account' | 'code' | 'third'
 type ThirdProvider = 'wechat' | 'alipay' | 'huawei'
@@ -22,19 +26,263 @@ const captchaPassed = ref(false)
 const captchaToken = ref('')
 const loading = ref(false)
 const captchaRef = ref<InstanceType<typeof SlideCaptcha> | null>(null)
+// 验证码 tab 独立滑块实例 (与账号 tab 的 captchaRef 分离, 避免互相重置)
+const codeCaptchaRef = ref<InstanceType<typeof SlideCaptcha> | null>(null)
+
+// ===== 站点配置: 注册开关 / 协议勾选强制性 / 品牌信息 (后台系统设置页维护) =====
+const registerOpen = ref(true)
+const loginAgreeRequired = ref(true)
+const systemName = ref('JC RAG')
+// 验证码位数: 由发送回执 codeLength 决定, 默认 4 位; 前端据此判断输入到第几位自动提交
+const expectedCodeLen = ref(4)
+
+// ===== 验证码登录: 手机号实时校验 =====
+const phoneTouched = ref(false)
+const phoneValid = computed(() => /^1[3-9]\d{9}$/.test(codeForm.phone))
+const phoneError = computed(() => phoneTouched.value && codeForm.phone.length > 0 && !phoneValid.value)
+// 验证码输入区默认隐藏, 滑块通过后平滑展开
+const codeBlockVisible = ref(false)
+
+// ===== 倒计时持久化: localStorage 存 deadline 时间戳, 页面刷新后继续读秒 (键名见 utils/login-state) =====
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+const smsCountdownKey = () => SMS_COUNTDOWN_KEY_PREFIX + codeForm.phone
+
+function stopCountdown() {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+/** 读取 localStorage 中的 deadline, 刷新 codeCountdown; 归零时清理缓存 */
+function tickCountdown() {
+  let deadline = 0
+  try {
+    deadline = Number(localStorage.getItem(smsCountdownKey()) || 0)
+  } catch (e) {
+    deadline = 0
+  }
+  const remain = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+  const prev = codeCountdown.value
+  codeCountdown.value = remain
+  if (remain <= 0) {
+    stopCountdown()
+    try {
+      localStorage.removeItem(smsCountdownKey())
+    } catch (e) {
+      // 忽略隐私模式写入失败
+    }
+    // 倒计时自然归零 (prev>0 跳变): 自动重置滑块, 再次发送需重新滑动 (token 一次性消费语义)
+    if (prev > 0) resetCodeCaptcha()
+  }
+}
+
+/** 以后端返回的秒数写入 deadline 并启动读秒 (与后端 Redis 限流 TTL 对齐) */
+function startCountdown(seconds: number) {
+  const deadline = Date.now() + seconds * 1000
+  try {
+    localStorage.setItem(smsCountdownKey(), String(deadline))
+  } catch (e) {
+    // 忽略隐私模式写入失败
+  }
+  tickCountdown()
+  stopCountdown()
+  countdownTimer = setInterval(tickCountdown, 1000)
+}
+
+/** 进入页面/切换手机号时恢复倒计时 (刷新不丢) */
+function restoreCountdown() {
+  if (!codeForm.phone) {
+    codeCountdown.value = 0
+    return
+  }
+  tickCountdown()
+  if (codeCountdown.value > 0 && !countdownTimer) {
+    countdownTimer = setInterval(tickCountdown, 1000)
+  }
+}
+
+/**
+ * 重置验证码 tab 滑块 (清除通过态与持久化缓存)。
+ * <p>重置时机仅限: 倒计时归零 / 发送失败 / 登录成功。
+ * 发送成功不重置 (保持验证通过态, 与倒计时强绑定), tab 切换也不重置。
+ */
+function resetCodeCaptcha() {
+  captchaPassed.value = false
+  captchaToken.value = ''
+  codeCaptchaRef.value?.reset()
+  clearCaptchaState('code:' + codeForm.phone)
+}
+
+/**
+ * 按当前手机号的短信倒计时同步滑块状态 (强绑定):
+ * 倒计时进行中且存在持久化通过记录 → 恢复通过态与验证码输入区;
+ * 否则 → 重置滑块并收起验证码输入区。
+ * <p>手机号变化与页面刷新恢复时调用。
+ */
+function syncCodeCaptchaWithCountdown() {
+  if (codeForm.phone && phoneValid.value && codeCountdown.value > 0) {
+    const token = loadCaptchaState('code:' + codeForm.phone)
+    if (token) {
+      captchaPassed.value = true
+      captchaToken.value = token
+      codeBlockVisible.value = true
+      nextTick(() => codeCaptchaRef.value?.restorePassed())
+      return
+    }
+  }
+  resetCodeCaptcha()
+  codeBlockVisible.value = false
+}
+
+// ===== 登录页状态持久化: tab / 手机号刷新不丢 (localStorage, 键名见 utils/login-state) =====
+
+// ===== 滑块验证通过态持久化: sessionStorage 存 token + deadline, 与后端 token 5 分钟有效期对齐, 刷新不丢 =====
+const CAPTCHA_STATE_TTL_MS = 5 * 60 * 1000
+
+/** 保存滑块通过 token (scopeKey 形如 'account:用户名' / 'code:手机号') */
+function saveCaptchaState(scopeKey: string, token: string) {
+  try {
+    sessionStorage.setItem(CAPTCHA_STATE_PREFIX + scopeKey,
+      JSON.stringify({ token, deadline: Date.now() + CAPTCHA_STATE_TTL_MS }))
+  } catch (e) {
+    // 忽略隐私模式写入失败
+  }
+}
+
+/** 读取滑块通过 token; 过期自动清理并返回空串 */
+function loadCaptchaState(scopeKey: string): string {
+  try {
+    const raw = sessionStorage.getItem(CAPTCHA_STATE_PREFIX + scopeKey)
+    if (!raw) return ''
+    const state = JSON.parse(raw) as { token?: string; deadline?: number }
+    if (!state.token || !state.deadline || Date.now() > state.deadline) {
+      sessionStorage.removeItem(CAPTCHA_STATE_PREFIX + scopeKey)
+      return ''
+    }
+    return state.token
+  } catch (e) {
+    return ''
+  }
+}
+
+function clearCaptchaState(scopeKey: string) {
+  try {
+    sessionStorage.removeItem(CAPTCHA_STATE_PREFIX + scopeKey)
+  } catch (e) {
+    // 忽略隐私模式写入失败
+  }
+}
 
 // 连续失败计数: 后端告知是否需要滑动验证
 const failCount = ref(0)
 const needCaptcha = ref(false)
 
+/**
+ * 查询后端登录失败次数, 决定是否展示滑块验证, 并恢复本会话已有的通过状态。
+ * 失败次数由后端持久化: 达阈值保持出现, 仅登录成功清零。
+ */
+async function fetchCaptchaStatus(username: string) {
+  if (!username) {
+    failCount.value = 0
+    needCaptcha.value = false
+    return
+  }
+  try {
+    const res = await userApi.captchaStatus(username) as { needCaptcha?: boolean; failCount?: number }
+    failCount.value = res?.failCount || 0
+    needCaptcha.value = !!res?.needCaptcha
+  } catch (e) {
+    console.warn('[LoginView] captchaStatus 查询失败:', (e as any)?.message)
+    return
+  }
+  if (needCaptcha.value) {
+    // 达阈值: 刷新后从会话存储恢复通过态, 避免重复滑动
+    const token = loadCaptchaState('account:' + username)
+    if (token) {
+      captchaPassed.value = true
+      captchaToken.value = token
+      nextTick(() => captchaRef.value?.restorePassed())
+    } else {
+      captchaPassed.value = false
+      captchaToken.value = ''
+    }
+  } else {
+    captchaPassed.value = false
+    captchaToken.value = ''
+  }
+}
+
 // 协议勾选 (账号密码 tab)
 const accountAgree = ref(false)
+
+// 手机号变化: 实时标记 touched + 持久化 + 恢复倒计时 + 按新手机号的倒计时同步滑块状态
+watch(() => codeForm.phone, () => {
+  phoneTouched.value = true
+  try {
+    localStorage.setItem(PHONE_STORAGE_KEY, codeForm.phone)
+  } catch (e) {
+    // 忽略隐私模式写入失败
+  }
+  // 验证码与旧手机号绑定, 切换后清空防止对新手机号误触发自动登录
+  codeForm.code = ''
+  restoreCountdown()
+  syncCodeCaptchaWithCountdown()
+})
+
+// 用户名变化: 防抖查询后端失败次数, 刷新滑块展示状态
+let usernameQueryTimer: ReturnType<typeof setTimeout> | null = null
+watch(() => accountForm.username, () => {
+  if (usernameQueryTimer) clearTimeout(usernameQueryTimer)
+  usernameQueryTimer = setTimeout(() => fetchCaptchaStatus(accountForm.username), 400)
+})
+
+// 验证码输入到后端下发的位数时自动登录; 协议强制开启时需已勾选才触发
+watch(() => codeForm.code, (val) => {
+  if (!val || val.length < expectedCodeLen.value) return
+  if (!phoneValid.value || loading.value) return
+  if (loginAgreeRequired.value && !codeForm.agree) return
+  onCodeLogin()
+})
+
+/** 手机号无效时遮罩拦截滑块, 点击提示 */
+function onCaptchaGuardClick() {
+  if (!phoneValid.value) {
+    ElMessage.warning('请输入正确的手机号')
+  }
+}
 
 function onCaptchaChange(data: { passed: boolean; captchaToken?: string }) {
   captchaPassed.value = data.passed
   captchaToken.value = data.captchaToken || ''
-  // 验证码 tab 验证通过后自动触发发送
-  if (data.passed && activeTab.value === 'code' && codeCountdown.value === 0 && !codeLoading.value) {
+  if (data.passed) {
+    saveCaptchaState('account:' + accountForm.username, data.captchaToken || '')
+  } else {
+    clearCaptchaState('account:' + accountForm.username)
+  }
+}
+
+/** 验证码 tab 滑块通过: 展开验证码输入区, 首次自动发送短信 */
+function onCodeCaptchaChange(data: { passed: boolean; captchaToken?: string }) {
+  if (!data.passed) {
+    captchaPassed.value = false
+    captchaToken.value = ''
+    clearCaptchaState('code:' + codeForm.phone)
+    return
+  }
+  if (!phoneValid.value) {
+    // 兜底: 正常路径已被 captcha-guard 遮罩拦截
+    ElMessage.warning('请输入正确的手机号')
+    codeCaptchaRef.value?.reset()
+    return
+  }
+  captchaPassed.value = true
+  captchaToken.value = data.captchaToken || ''
+  saveCaptchaState('code:' + codeForm.phone, captchaToken.value)
+  codeBlockVisible.value = true
+  // 首次通过自动获取验证码; 倒计时中说明已发过, 仅展示不重复发送
+  if (codeCountdown.value === 0 && !codeLoading.value) {
     sendCode()
   }
 }
@@ -46,7 +294,7 @@ async function onAccountLogin() {
   if (needCaptcha.value && (!captchaPassed.value || !captchaToken.value)) {
     ElMessage.warning('请先完成滑动验证'); return
   }
-  if (!accountAgree.value) {
+  if (loginAgreeRequired.value && !accountAgree.value) {
     ElMessage.warning('请先勾选并同意《用户协议》与《隐私政策》'); return
   }
   loading.value = true
@@ -62,6 +310,7 @@ async function onAccountLogin() {
       captchaPassed.value = false
       captchaToken.value = ''
       captchaRef.value?.reset()
+      clearCaptchaState('account:' + accountForm.username)
       return
     }
     if (res && typeof res === 'object') {
@@ -69,6 +318,11 @@ async function onAccountLogin() {
       if (typeof res.needCaptcha === 'boolean') needCaptcha.value = res.needCaptcha
     }
     ElMessage.success('登录成功')
+    // 登录成功: 后端已清零失败次数, 同步重置滑块并清除通过态缓存, 保证退出后再进登录页是干净初始态
+    captchaPassed.value = false
+    captchaToken.value = ''
+    captchaRef.value?.reset()
+    clearCaptchaState('account:' + accountForm.username)
     console.log('[Login] success, verifying session before navigation, pathname:', window.location.pathname)
     // 关键修复: 登录后先验证会话已就绪再跳转, 避免后端 session 写入与浏览器 cookie 应用存在时差
     // 导致 ChatHomeView 首次 /auth/me 请求 401 → 被 http 拦截器重定向回 /login
@@ -99,13 +353,13 @@ async function onAccountLogin() {
     captchaPassed.value = false
     captchaToken.value = ''
     captchaRef.value?.reset()
+    clearCaptchaState('account:' + accountForm.username)
     return
   } finally {
     loading.value = false
   }
   // 主动验证 session cookie 已生效: 调用 currentUser, 拿不到 user.authenticated=true 就等
   // 解决"已登录浏览器残留旧 cookie"导致的 ChatHomeView 首次 401
-  const SESSION_READY_KEY = 'jc_rag_session_ready'
   let verified = false
   for (let i = 0; i < 10; i++) {
     try {
@@ -130,36 +384,95 @@ async function onAccountLogin() {
 }
 
 async function sendCode() {
-  if (!/^1[3-9]\d{9}$/.test(codeForm.phone)) {
+  if (!phoneValid.value) {
     ElMessage.warning('请输入正确的手机号'); return
   }
-  if (!captchaPassed.value) {
+  if (!captchaPassed.value || !captchaToken.value) {
     ElMessage.warning('请先完成滑动验证'); return
   }
   codeLoading.value = true
-  // 预留接口, 后端实现短信发送
-  // await userApi.sendSmsCode(codeForm.phone)
-  ElMessage.success('验证码已发送（演示）')
-  codeLoading.value = false
-  codeCountdown.value = 60
-  const timer = setInterval(() => {
-    codeCountdown.value--
-    if (codeCountdown.value <= 0) clearInterval(timer)
-  }, 1000)
+  try {
+    const res = await userApi.sendSmsCode({ phone: codeForm.phone, captchaToken: captchaToken.value }) as
+      { sent?: boolean; waitSeconds?: number; intervalSeconds?: number; codeLength?: number }
+    if (res && res.sent === false) {
+      // 命中后端限流: 用后端剩余秒数同步倒计时, 保证前后端一致
+      startCountdown(res.waitSeconds || 60)
+      ElMessage.info(`发送过于频繁, 请 ${codeCountdown.value}s 后再试`)
+    } else {
+      // 后端回执告知验证码位数, 前端据此判断输入到第几位自动登录
+      if (typeof res?.codeLength === 'number' && res.codeLength > 0) {
+        expectedCodeLen.value = res.codeLength
+      }
+      startCountdown(res?.intervalSeconds || 60)
+      ElMessage.success('验证码已发送')
+    }
+  } catch (e: any) {
+    console.error('[LoginView] sendSmsCode failed:', e?.message)
+    // http 拦截器已透传后端业务 message (如"请先完成滑动验证")
+    ElMessage.error(e?.message || '验证码发送失败, 请稍后重试')
+    // 发送失败: 后端可能已消费 token 且未启动倒计时, 重置滑块要求重新滑动
+    resetCodeCaptcha()
+  } finally {
+    codeLoading.value = false
+    // 发送成功/限流不重置滑块: 保持验证通过态与倒计时强绑定,
+    // 仅倒计时归零 (tickCountdown) 或登录成功 (onCodeLogin) 时才重置
+  }
 }
 
 async function onSendCode() {
   sendCode()
 }
 
+/** 验证码登录: 未注册手机号由后端自动注册, 登录/注册一体 */
 async function onCodeLogin() {
-  if (!codeForm.phone || !codeForm.code) {
-    ElMessage.warning('请输入手机号和验证码'); return
+  if (!codeForm.phone || !phoneValid.value) {
+    ElMessage.warning('请输入正确的手机号'); return
   }
-  if (!codeForm.agree) {
+  if (!codeForm.code) {
+    ElMessage.warning('请输入验证码'); return
+  }
+  if (loginAgreeRequired.value && !codeForm.agree) {
     ElMessage.warning('请先勾选并同意《用户协议》与《隐私政策》'); return
   }
-  ElMessage.warning('验证码登录功能待实现')
+  loading.value = true
+  try {
+    const res = await userApi.smsLogin({ phone: codeForm.phone, code: codeForm.code }) as
+      { success?: boolean; message?: string }
+    if (res && res.success === false) {
+      ElMessage.error(res.message || '验证码错误或已过期')
+      return
+    }
+    // 自动注册时后端返回 "已自动注册并登录"
+    ElMessage.success(res?.message || '登录成功')
+    // 登录成功: 重置滑块并清除通过态缓存, 保证退出后再进登录页是干净初始态
+    resetCodeCaptcha()
+    codeForm.code = ''
+  } catch (e: any) {
+    ElMessage.error(e?.message || '登录失败, 请重试')
+    return
+  } finally {
+    loading.value = false
+  }
+  // 与账号登录一致: 轮询确认 session cookie 已生效再跳转, 避免 ChatHomeView 首次 401
+  let verified = false
+  for (let i = 0; i < 10; i++) {
+    try {
+      const u = await userApi.currentUser()
+      if (u && u.authenticated) {
+        verified = true
+        break
+      }
+    } catch (e) {
+      console.warn('[LoginView] sms session verify attempt', i, 'failed')
+    }
+    await new Promise(resolve => setTimeout(resolve, 200))
+  }
+  if (!verified) {
+    ElMessage.error('登录态验证失败, 请重试')
+    return
+  }
+  sessionStorage.setItem(SESSION_READY_KEY, String(Date.now()))
+  await router.push('/chat').catch(err => console.error('[LoginView] router.push error:', err))
 }
 
 function onThirdPartyLogin(provider: ThirdProvider) {
@@ -266,27 +579,59 @@ function drawQrCode() {
 }
 
 watch(activeTab, (tab) => {
+  try {
+    localStorage.setItem(LOGIN_TAB_STORAGE_KEY, tab)
+  } catch (e) {
+    // 忽略隐私模式写入失败
+  }
   if (tab === 'third') drawQrCode()
 })
-onMounted(() => {
+onMounted(async () => {
+  // 站点配置: 控制注册入口显隐与协议复选框强制性 (失败不阻断, 用默认值)
+  userApi.siteConfig().then((cfg: { registerOpen?: boolean; loginAgreeRequired?: boolean; systemName?: string }) => {
+    registerOpen.value = cfg?.registerOpen !== false
+    loginAgreeRequired.value = cfg?.loginAgreeRequired !== false
+    if (cfg?.systemName) systemName.value = cfg.systemName
+  }).catch(() => { /* 配置加载失败按默认值: 注册开放/协议必选 */ })
+  // 刷新恢复: 当前 tab → 手机号 → 倒计时 → 滑块通过态
+  try {
+    const savedTab = localStorage.getItem(LOGIN_TAB_STORAGE_KEY)
+    if (savedTab === 'account' || savedTab === 'code' || savedTab === 'third') {
+      activeTab.value = savedTab
+    }
+  } catch (e) {
+    // 忽略隐私模式读取失败
+  }
+  try {
+    const savedPhone = localStorage.getItem(PHONE_STORAGE_KEY)
+    if (savedPhone) codeForm.phone = savedPhone
+  } catch (e) {
+    // 忽略隐私模式读取失败
+  }
+  // 等手机号 watch 先执行完 (恢复倒计时), 再同步滑块通过态, 避免被 watch 重置
+  await nextTick()
+  restoreCountdown()
+  // 账号 tab: 查询后端失败次数决定是否展示滑块, 有通过态则恢复
+  fetchCaptchaStatus(accountForm.username)
+  // 验证码 tab: 滑块状态与倒计时强绑定, 仅倒计时进行中才恢复通过态
+  syncCodeCaptchaWithCountdown()
   if (activeTab.value === 'third') drawQrCode()
 })
-
-function switchTab(key: TabKey) {
-  activeTab.value = key
-  captchaPassed.value = false
-  captchaToken.value = ''
-  captchaRef.value?.reset()
-}
+onBeforeUnmount(() => {
+  stopCountdown()
+  if (usernameQueryTimer) clearTimeout(usernameQueryTimer)
+})
+// 切换 tab 不重置滑块: tab 面板不销毁, 视觉状态自然保留;
+// 滑块通过态与短信倒计时强绑定, 仅登录成功 / 倒计时到期才重置
 </script>
 
 <template>
   <div class="login-wrapper">
     <el-card class="login-card" shadow="never">
       <h2>用户登录</h2>
-      <p class="login-desc">JC RAG 智能问答系统</p>
+      <p class="login-desc">{{ systemName }} 智能问答系统</p>
 
-      <el-tabs v-model="activeTab" class="login-tabs" @tab-change="(k: any) => switchTab(k as TabKey)">
+      <el-tabs v-model="activeTab" class="login-tabs">
         <!-- 账号密码 -->
         <el-tab-pane label="账号密码" name="account">
           <el-form label-position="top" class="login-form">
@@ -310,12 +655,14 @@ function switchTab(key: TabKey) {
                 </template>
               </el-input>
             </el-form-item>
-            <el-form-item v-if="needCaptcha" label="安全验证">
-              <SlideCaptcha ref="captchaRef" @change="onCaptchaChange" />
-              <div class="captcha-hint">连续登录失败 {{ failCount }} 次, 请完成滑动验证</div>
-            </el-form-item>
+            <transition name="code-block">
+              <el-form-item v-if="needCaptcha" label="安全验证">
+                <SlideCaptcha ref="captchaRef" @change="onCaptchaChange" />
+                <div class="captcha-hint">连续登录失败 {{ failCount }} 次, 请完成滑动验证</div>
+              </el-form-item>
+            </transition>
             <el-button type="primary" :loading="loading" class="login-btn" @click="onAccountLogin">登录</el-button>
-            <div class="agreement-row">
+            <div v-if="loginAgreeRequired" class="agreement-row">
               <el-checkbox v-model="accountAgree">
                 我已阅读并同意
                 <a class="link" @click.prevent="openAgreement('USER_AGREEMENT')">《用户协议》</a>
@@ -330,35 +677,61 @@ function switchTab(key: TabKey) {
         <el-tab-pane label="验证码登录" name="code">
           <el-form label-position="top" class="login-form">
             <el-form-item label="手机号">
-              <el-input v-model="codeForm.phone" placeholder="请输入手机号" maxlength="11">
+              <el-input
+                v-model="codeForm.phone"
+                placeholder="请输入手机号"
+                maxlength="11"
+                :class="{ 'phone-invalid': phoneError }"
+                @blur="phoneTouched = true"
+              >
                 <template #prefix>
                   <el-icon class="input-icon"><Iphone /></el-icon>
                 </template>
               </el-input>
+              <div v-if="phoneError" class="phone-error-msg">请输入正确的手机号</div>
             </el-form-item>
             <el-form-item label="安全验证">
-              <SlideCaptcha ref="captchaRef" @change="onCaptchaChange" />
+              <div class="captcha-wrap">
+                <SlideCaptcha ref="codeCaptchaRef" @change="onCodeCaptchaChange" />
+                <!-- 手机号格式不正确时拦截滑块拖动 -->
+                <div
+                  v-if="!phoneValid"
+                  class="captcha-guard"
+                  @click="onCaptchaGuardClick"
+                  @mousedown.prevent
+                  @touchstart.prevent="onCaptchaGuardClick"
+                ></div>
+              </div>
+              <div class="captcha-hint">完成滑动验证后将自动发送短信验证码</div>
             </el-form-item>
-            <el-form-item label="验证码">
-              <el-input v-model="codeForm.code" placeholder="请输入 6 位短信验证码" maxlength="6">
-                <template #prefix>
-                  <el-icon class="input-icon"><Message /></el-icon>
-                </template>
-                <template #append>
-                  <el-button
-                    :disabled="codeCountdown > 0"
-                    :loading="codeLoading"
-                    class="code-btn"
-                    @click="onSendCode"
+            <transition name="code-block">
+              <div v-if="codeBlockVisible" class="code-block">
+                <el-form-item label="验证码">
+                  <el-input
+                    v-model="codeForm.code"
+                    :placeholder="`请输入 ${expectedCodeLen} 位短信验证码`"
+                    :maxlength="expectedCodeLen"
                   >
-                    {{ codeCountdown > 0 ? `${codeCountdown}s 后重试` : '获取验证码' }}
-                  </el-button>
-                </template>
-              </el-input>
-            </el-form-item>
-            <el-button type="primary" :loading="loading" class="login-btn" @click="onCodeLogin">登录</el-button>
+                    <template #prefix>
+                      <el-icon class="input-icon"><Message /></el-icon>
+                    </template>
+                    <template #append>
+                      <el-button
+                        :disabled="codeCountdown > 0"
+                        :loading="codeLoading"
+                        class="code-btn"
+                        @click="onSendCode"
+                      >
+                        {{ codeCountdown > 0 ? `${codeCountdown}s 后重试` : '获取验证码' }}
+                      </el-button>
+                    </template>
+                  </el-input>
+                </el-form-item>
+              </div>
+            </transition>
+            <el-button type="primary" :loading="loading" class="login-btn" @click="onCodeLogin">{{ registerOpen ? '登录 / 注册' : '登录' }}</el-button>
             <div class="agreement-row">
-              <el-checkbox v-model="codeForm.agree">
+              <el-checkbox v-if="loginAgreeRequired" v-model="codeForm.agree">
                 我已阅读并同意
                 <a class="link" @click.prevent="openAgreement('USER_AGREEMENT')">《用户协议》</a>
                 与
@@ -423,7 +796,7 @@ function switchTab(key: TabKey) {
         </el-tab-pane>
       </el-tabs>
 
-      <div class="login-links">
+      <div v-if="registerOpen" class="login-links">
         <router-link to="/register">没有账号？去注册</router-link>
       </div>
     </el-card>
@@ -522,6 +895,47 @@ function switchTab(key: TabKey) {
   color: #f59e0b;
   margin-top: 6px;
   line-height: 1.4;
+}
+/* ===== 验证码登录: 手机号校验 / 滑块门禁 / 验证码区展开动效 ===== */
+.phone-invalid :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px #f56c6c inset !important;
+}
+.phone-error-msg {
+  color: #f56c6c;
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.captcha-wrap {
+  position: relative;
+  width: 100%;
+}
+.captcha-guard {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  cursor: not-allowed;
+  border-radius: 22px;
+  background: rgba(248, 250, 252, 0.45);
+}
+.code-block {
+  overflow: hidden;
+}
+.code-block-enter-active,
+.code-block-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease, max-height 0.35s ease;
+  overflow: hidden;
+}
+.code-block-enter-from,
+.code-block-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+  max-height: 0;
+}
+.code-block-enter-to,
+.code-block-leave-from {
+  opacity: 1;
+  max-height: 180px;
 }
 .agreement-row {
   display: flex;

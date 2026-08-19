@@ -21,6 +21,11 @@
             <artifactId>jc-rag-domain</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 短信能力模块: 验证码登录 (发送/限流/校验), 自动装配无需改启动类扫描 -->
+        <dependency>
+            <groupId>com.jc</groupId>
+            <artifactId>jc-rag-sms</artifactId>
+        </dependency>
         <!--
             ★ 引入 jc-rag-admin 仅为了拿到 ProEvaluationServiceOssImpl 唯一实现 (PublicEvaluationController 注入).
             ★ 启动类 @ComponentScan 不再扫描 com.jc.rag.admin.*, 避免 admin 的 SecurityConfig 与 user 的 UserSecurityConfig 冲突.

@@ -50,6 +50,39 @@ management:
     health:
       show-details: always
 
+# =============================================================================
+# 短信服务 (jc-rag-sms 模块, 验证码登录用)
+# -----------------------------------------------------------------------------
+# provider: log    —— 默认演示渠道, 验证码仅输出到服务端日志, 开箱即用
+#           aliyun —— 阿里云短信; tencent —— 腾讯云短信
+# 多渠道共存: aliyun / tencent 两段凭证可同时填写, 由 provider 决定当前启用哪家;
+#           真实凭证按分层约定填到 application-{env}.yml, 本文件仅保留注释模板.
+# test-enabled: 开发环境测试后门, 开启后输入固定 test-code 直接通过校验;
+#               生产环境必须保持 false
+# =============================================================================
+jc-rag:
+  sms:
+    provider: log
+    code-ttl-seconds: 300
+    send-interval-seconds: 60
+    test-enabled: false
+    test-code: '8888'
+    # ----- 阿里云短信凭证 (provider=aliyun 时生效, 模板变量需 ${code} ${minutes}) -----
+    # aliyun:
+    #   key-id: 您的 AccessKey ID
+    #   key-secret: 您的 AccessKey Secret
+    #   sign: 短信签名 (控制台已审核)
+    #   template-code: SMS_xxx (模板 CODE)
+    #   endpoint: dysmsapi.aliyuncs.com    # 可省略, 默认国内站
+    # ----- 腾讯云短信凭证 (provider=tencent 时生效, 模板变量需 {1}验证码 {2}有效分钟) -----
+    # tencent:
+    #   key-id: 您的 SecretId
+    #   key-secret: 您的 SecretKey
+    #   app-id: '1400xxxxxx'               # 短信应用 SdkAppId (注意加引号防数字溢出)
+    #   region: ap-guangzhou               # 可省略, 默认广州
+    #   sign: 短信签名 (控制台已审核)
+    #   template-code: 您的模板 ID
+
 app:
   name: JC RAG User Portal
   version: 0.0.1-SNAPSHOT

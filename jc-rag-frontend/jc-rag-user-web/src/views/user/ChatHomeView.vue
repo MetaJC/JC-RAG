@@ -15,6 +15,7 @@ import markdownItTaskLists from 'markdown-it-task-lists'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
 import { userApi, userApiBase, isUnauthorizedError, extractErrorMessage } from '../../api/user'
+import { clearLoginLocalState } from '../../utils/login-state'
 import PreferencesDialog from '../../components/PreferencesDialog.vue'
 
 const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
@@ -952,7 +953,30 @@ function renderMd(text: string) {
   }
 }
 
-function logout() { router.push('/login') }
+/**
+ * 退出登录: 调后端销毁会话 (session.invalidate), 再清理登录页本地持久化状态
+ * 与本视图 keep-alive 缓存数据后跳转登录页。
+ * <p>修复: 此前仅 router.push('/login') 未调后端, 服务端会话未销毁,
+ * 导致退出后再次访问鉴权页面仍可免登录直接进入。
+ */
+async function logout() {
+  try {
+    await userApi.logout()
+  } catch (e) {
+    // 后端不可达时仍清本地状态并跳转, 避免用户卡在已退出页面
+    console.warn('[ChatHome] 后端 logout 调用失败:', (e as any)?.message)
+  }
+  clearLoginLocalState()
+  // 清空本视图缓存数据 (keep-alive), 重新登录时 onActivated 检测到数据为空会重新加载
+  sessions.value = []
+  knowledgeBases.value = []
+  agents.value = []
+  messages.value = []
+  selectedSessionId.value = null
+  selectedKnowledgeBaseId.value = null
+  selectedAgentId.value = null
+  router.push('/login')
+}
 
 function onSettingsCommand(command: string) {
   console.log('[preferences-debug] onSettingsCommand:', command)

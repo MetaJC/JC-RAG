@@ -14,6 +14,7 @@ docs/
 │   ├── system-architecture.md             ← 系统整体架构
 │   ├── modules.md                         ← 模块划分说明
 │   ├── knowledge-parse-pipeline.md        ← 知识库解析流水线
+│   ├── sms-service.md                     ← 短信服务 (验证码登录/多渠道)
 │   ├── monorepo-edition.md                ← 单仓双版本架构 (背景)
 │   └── pro-repository.md                  ← 商业版仓库说明
 │
@@ -77,6 +78,7 @@ docs/
 | 敏感词与安全防护 (词库/AC/PII/审计) | `architecture/sensitive-word.md` |
 | 用户级智能体 (系统/自定义/默认) | `architecture/user-agent.md` |
 | 知识库解析流水线 | `architecture/knowledge-parse-pipeline.md` |
+| 短信验证码登录 / 短信渠道配置 | `architecture/sms-service.md` |
 | 商业版怎么集成 | `architecture/pro-repository.md` |
 | 商业版 vs 社区版数据库同步 | `architecture/monorepo-edition.md` + [商业版同步规范](../jc-rag-pro/jc-rag-pro-docs/edition/community-to-pro-sync.md) |
 | 三版本 (社区版/Pro/企业版) 功能划分 | [三版本功能规划矩阵](../../jc-rag-pro/jc-rag-pro-docs/roadmap/edition-feature-matrix.md) |

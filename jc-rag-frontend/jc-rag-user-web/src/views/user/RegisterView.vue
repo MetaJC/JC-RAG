@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { userApi } from '../../api/user'
@@ -7,6 +7,17 @@ import { userApi } from '../../api/user'
 const router = useRouter()
 const form = ref({ username: '', nickname: '', password: '', confirmPassword: '', email: '' })
 const loading = ref(false)
+// 注册开关: 后台系统设置页维护, 关闭时展示提示不展示表单
+const registerOpen = ref(true)
+
+onMounted(async () => {
+  try {
+    const cfg = await userApi.siteConfig() as { registerOpen?: boolean }
+    registerOpen.value = cfg?.registerOpen !== false
+  } catch {
+    registerOpen.value = true
+  }
+})
 
 async function onRegister() {
   if (!form.value.username || !form.value.password) { ElMessage.warning('用户名和密码不能为空'); return }
@@ -29,7 +40,8 @@ async function onRegister() {
     <el-card class="register-card" shadow="never">
       <h2>用户注册</h2>
       <p class="desc">创建 JC RAG 智能问答系统账号</p>
-      <el-form label-position="top">
+      <el-alert v-if="!registerOpen" title="系统暂未开放注册" description="管理员已关闭用户注册功能, 请联系管理员开通账号" type="warning" :closable="false" show-icon style="margin-bottom: 16px" />
+      <el-form v-if="registerOpen" label-position="top">
         <el-form-item label="用户名"><el-input v-model="form.username" placeholder="登录用" /></el-form-item>
         <el-form-item label="昵称"><el-input v-model="form.nickname" placeholder="显示名称" /></el-form-item>
         <el-form-item label="邮箱"><el-input v-model="form.email" placeholder="选填" /></el-form-item>

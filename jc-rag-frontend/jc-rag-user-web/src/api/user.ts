@@ -31,6 +31,13 @@ function normalizeKnowledgeBase(item: any) {
 export const userApi = {
   login: (data: any) => request.post('/auth/login', data).then(r => r.data),
   register: (data: any) => request.post('/auth/register', data).then(r => r.data),
+  // 短信验证码登录: 发送 (需滑动验证 token) + 登录/注册一体
+  sendSmsCode: (data: { phone: string; captchaToken: string }) => request.post('/auth/sms/send', data).then(r => r.data),
+  smsLogin: (data: { phone: string; code: string }) => request.post('/auth/sms/login', data).then(r => r.data),
+  // 滑动验证需求状态查询 (刷新页面后恢复"是否需要滑块", 失败次数后台持久化)
+  captchaStatus: (username: string) => request.get('/auth/captcha-status', { params: { username } }).then(r => r.data),
+  // 站点配置 (注册开关/协议勾选强制性/品牌信息, 后台系统设置页维护)
+  siteConfig: () => request.get('/auth/site-config').then(r => r.data),
   currentUser: () => request.get('/auth/me').then(r => r.data),
   logout: () => request.post('/auth/logout').then(r => r.data),
   // 个人中心

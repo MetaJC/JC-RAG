@@ -86,6 +86,18 @@ public class CaptchaService {
         return System.currentTimeMillis() <= expire;
     }
 
+    /**
+     * 校验 token 是否有效 (不消费).
+     * <p>用于"先做业务预检 (如短信限流), 通过后再 consumeToken"的场景,
+     * 避免预检失败时白白烧掉一次性 token.
+     */
+    public boolean peekToken(String token) {
+        if (token == null || token.isEmpty()) return false;
+        Long expire = tokens.get(token);
+        if (expire == null) return false;
+        return System.currentTimeMillis() <= expire;
+    }
+
     private void cleanup() {
         long now = System.currentTimeMillis();
         challenges.entrySet().removeIf(e -> now > e.getValue());

@@ -34,6 +34,7 @@ import ModelProviderConfigView from '../views/ModelProviderConfigView.vue'
 import ModelSettingsView from '../views/ModelSettingsView.vue'
 import ModelParameterSettingsView from '../views/ModelParameterSettingsView.vue'
 import DeveloperOptionsView from '../views/DeveloperOptionsView.vue'
+import SystemPreferencesView from '../views/SystemPreferencesView.vue'
 
 const router = createRouter({
   // base 跟随 vite base (import.meta.env.BASE_URL), dev/生产自动对齐
@@ -85,6 +86,12 @@ const router = createRouter({
           path: '/system/developer-options',
           name: 'developer-options',
           component: DeveloperOptionsView,
+        },
+        {
+          // 系统管理 → 系统设置 (基础信息 + 账号设置, sys_config 存储)
+          path: '/system/preferences',
+          name: 'sys-preferences',
+          component: SystemPreferencesView,
         },
         {
           path: '/knowledge/base',

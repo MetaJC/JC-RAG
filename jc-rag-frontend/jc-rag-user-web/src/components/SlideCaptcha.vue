@@ -243,7 +243,19 @@ onBeforeUnmount(() => {
 })
 
 const reset = () => init()
-defineExpose({ reset })
+
+/**
+ * 恢复"验证通过"视觉态 (页面刷新后由父组件携带有效 token 调用).
+ * <p>token 有效性由后端校验, 过期/失效时提交会被后端拒绝并由父组件 reset.
+ */
+const restorePassed = () => {
+  updateTrackWidth()
+  knobX.value = Math.max(0, trackWidth.value - blockSize)
+  passed.value = true
+  failed.value = false
+  checking.value = false
+}
+defineExpose({ reset, restorePassed })
 </script>
 
 <style scoped>

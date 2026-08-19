@@ -57,6 +57,9 @@ public interface RbacUserMapper extends BaseMapper<RbacUserEntity> {
     /** 认证加载：id/username/password_hash/nickname/user_type, status=1, deleted=0 */
     Map<String, Object> selectAuthInfo(@Param("username") String username);
 
+    /** 认证加载 (按手机号): 字段同 selectAuthInfo, 短信验证码登录用 */
+    Map<String, Object> selectAuthInfoByPhone(@Param("phone") String phone);
+
     /** 查用户 id（注册查重） */
     Long selectIdByUsername(@Param("username") String username);
 
@@ -68,6 +71,12 @@ public interface RbacUserMapper extends BaseMapper<RbacUserEntity> {
                          @Param("passwordHash") String passwordHash,
                          @Param("nickname") String nickname,
                          @Param("email") String email);
+
+    /** 短信自动注册：插入 NORMAL 用户 (带手机号, username 即手机号) */
+    int insertSmsUser(@Param("username") String username,
+                      @Param("passwordHash") String passwordHash,
+                      @Param("nickname") String nickname,
+                      @Param("phone") String phone);
 
     /** 登录成功：清零失败次数 + 更新最后登录时间 */
     int markLoginSuccess(@Param("userId") Long userId);

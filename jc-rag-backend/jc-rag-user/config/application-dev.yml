@@ -34,4 +34,18 @@ jc-rag:
     l0:
       retention-days: 90
       retention-cron: "0 0 3 * * ?"
+  # 短信服务商凭证 (开发环境填写入口; 两家可同时配, provider 在 application.yml 切换)
+  # 启用真实渠道步骤: 1) 取消对应注释并填入凭证 2) application.yml 的 jc-rag.sms.provider 改为 aliyun/tencent
+  # sms:
+  #   aliyun:
+  #     key-id: 您的 AccessKey ID
+  #     key-secret: 您的 AccessKey Secret
+  #     sign: 您的短信签名
+  #     template-code: SMS_xxx
+  #   tencent:
+  #     key-id: 您的 SecretId
+  #     key-secret: 您的 SecretKey
+  #     app-id: '1400xxxxxx'
+  #     sign: 您的短信签名
+  #     template-code: 您的模板 ID
 

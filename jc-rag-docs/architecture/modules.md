@@ -9,7 +9,7 @@
 | rbac     | /api/rbac   | 用户 / 角色 / 权限 / 菜单 |
 | sys      | /api/sys    | Dashboard / 日志 / 通知 / 运行时配置 / 健康 / 扩展 / Demo / API Key / 法律文档 |
 | rag      | /api/rag    | 智能体 / 技能 / 提示词 |
-| auth     | /api/auth   | 登录 / 验证码 / 修改密码 |
+| auth     | /api/auth   | 登录 / 验证码 / 修改密码 / 短信验证码登录注册 (SmsAuthController) |
 | chat     | /api/chat   | 聊天会话 / 消息 |
 | knowledge| /api/kb     | 知识库 / 文档 |
 | audit    | /api/audit  | 操作日志查询 (兼容层, 统一入口为 /api/sys/log/*) |
@@ -255,3 +255,7 @@
 ## 旧接口兼容
 
 `system` 模块下已不保留任何 Controller，原 `/api/system/**` 通过 `SysExtraController#_legacy/**` 和 `SysConfigController#runtime-config` 等同位置 `/api/sys/**` 路由接入。建议前端在合理窗口内切换到 `/api/sys/**`。
+
+## 短信服务模块 (jc-rag-sms)
+
+独立 Maven 模块 (`jc-rag-backend/jc-rag-sms`), 提供短信渠道抽象 (log/aliyun/tencent 可配置切换) + 验证码发送/限流/校验, 支撑 C 端手机号验证码登录/注册一体 (`POST /api/auth/sms/{send,login}`, 位于 jc-rag-user)。详细设计见 [`architecture/sms-service.md`](sms-service.md)。

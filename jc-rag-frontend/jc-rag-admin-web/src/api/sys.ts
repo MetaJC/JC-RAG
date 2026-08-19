@@ -13,6 +13,27 @@ export async function fetchSysDashboard() {
   return data
 }
 
+/* ============== 系统设置 (sys_config) ============== */
+
+/** 系统设置项 */
+export interface SystemSettingForm {
+  systemName: string
+  logoUrl: string
+  copyright: string
+  registerOpen: boolean
+  loginAgreeRequired: boolean
+}
+
+export async function fetchSystemSettings() {
+  const { data } = await request.get('/sys/settings')
+  return data as SystemSettingForm
+}
+
+export async function saveSystemSettings(payload: SystemSettingForm) {
+  const { data } = await request.put('/sys/settings', payload)
+  return data as SystemSettingForm
+}
+
 /* ============== RBAC ============== */
 
 export async function fetchSysUsers(params: { page?: number; size?: number; keyword?: string }) {

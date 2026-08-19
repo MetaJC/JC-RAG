@@ -17,6 +17,7 @@
     <modules>
         <module>jc-rag-common</module>
         <module>jc-rag-domain</module>
+        <module>jc-rag-sms</module>
         <module>jc-rag-admin</module>
         <module>jc-rag-user</module>
     </modules>
@@ -40,6 +41,15 @@
             <dependency>
                 <groupId>com.jc</groupId>
                 <artifactId>jc-rag-domain</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!--
+                短信能力独立模块 (渠道抽象 + 验证码生命周期),
+                自动装配注册, 供 user/admin 启动模块按需引入.
+            -->
+            <dependency>
+                <groupId>com.jc</groupId>
+                <artifactId>jc-rag-sms</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!--
