@@ -50,8 +50,8 @@ git status  # 确保无未提交变更
 ### 2. 执行拆分
 
 ```bash
-# 2.1 跑 extract-community.sh 脚本
-bash scripts/extract-community.sh
+# 2.1 跑 split-community-repo.sh 脚本
+bash jc-rag-pro-script/split-community-repo.sh
 
 # 2.2 验证公开仓
 git clone https://gitee.com/Open-JC/jc-rag-community.git /tmp/test-community
@@ -62,7 +62,7 @@ ls /tmp/test-community
 ### 3. 配置 community remote
 
 ```bash
-bash scripts/setup-remotes.sh
+bash jc-rag-pro-script/setup-git-remotes.sh
 # 选 y 添加 community remote
 ```
 
@@ -82,14 +82,14 @@ git commit -m "fix: 修复 KB 视图渲染 bug"
 git push origin master
 
 # 4. 推公开仓（让社区也能用这个修复）
-bash jc-rag-pro-script/sync-community.sh push
+bash jc-rag-pro-script/sync-community-subtree.sh push
 ```
 
 ### 场景 B：公开仓有 PR 合并了，拉到商业仓
 
 ```bash
 # 1. 拉公开仓更新
-bash jc-rag-pro-script/sync-community.sh pull
+bash jc-rag-pro-script/sync-community-subtree.sh pull
 
 # 2. 验证 (检查 jc-rag-community/ 文件变更)
 git diff HEAD~1 jc-rag-community/
@@ -109,7 +109,7 @@ git add jc-rag
 git commit -m "feat: jc-rag 模块商业定制"
 git push origin master
 
-# ⚠️ 不要跑 sync-community.sh push, 公开仓永远不知道这个修改
+# ⚠️ 不要跑 sync-community-subtree.sh push, 公开仓永远不知道这个修改
 ```
 
 ## 切换到 submodule（如果将来需要）
@@ -147,13 +147,13 @@ git push origin master
 ## 常见问题
 
 ### Q1: community remote 没配怎么办？
-跑 `bash scripts/setup-remotes.sh`，会引导你添加。
+跑 `bash jc-rag-pro-script/setup-git-remotes.sh`，会引导你添加。
 
 ### Q2: 推送冲突怎么办？
 公开仓和商业仓可能各自演进。解决：
 ```bash
 # 拉公开仓到商业仓 (会合并)
-bash scripts/sync-community.sh pull
+bash jc-rag-pro-script/sync-community-subtree.sh pull
 
 # 解决可能的冲突
 # 然后再 push 商业仓
@@ -164,7 +164,7 @@ bash scripts/sync-community.sh pull
 1. 公开仓 git log 找到误推 commit
 2. 公开仓 git revert <commit-hash>
 3. 公开仓 git push
-4. 商业仓同步：bash jc-rag-pro-script/sync-community.sh pull
+4. 商业仓同步：bash jc-rag-pro-script/sync-community-subtree.sh pull
 
 ### Q4: 公开仓被独立 clone 时，jc-rag-community/ 在哪？
 - **subtree 模式**：clone 后 jc-rag-community/ 就在本地，是普通目录
@@ -174,7 +174,7 @@ bash scripts/sync-community.sh pull
 
 | 脚本 | 用途 |
 |---|---|
-| `jc-rag-pro-script/extract-community.sh` | v1.0 一次性提取 jc-rag-community/ 到独立公开仓 |
-| `jc-rag-pro-script/sync-community.sh` | 日常双向同步（push/pull/status） |
-| `jc-rag-pro-script/setup-remotes.sh` | 配置双 remote |
+| `jc-rag-pro-script/split-community-repo.sh` | v1.0 一次性提取 jc-rag-community/ 到独立公开仓 |
+| `jc-rag-pro-script/sync-community-subtree.sh` | 日常双向同步（push/pull/status） |
+| `jc-rag-pro-script/setup-git-remotes.sh` | 配置双 remote |
 | `jc-rag-pro-script/build-pro.sh` | 构建商业版（不涉及仓库） |

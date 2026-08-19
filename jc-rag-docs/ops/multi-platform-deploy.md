@@ -85,7 +85,7 @@ git remote -v
 
 ### 3. 简化命令: 一键推双平台
 
-写脚本 `scripts/push-all.sh`:
+双平台推送脚本已落地为 `jc-rag-pro-script/push-pro-repo.sh`（参考实现如下）:
 
 ```bash
 #!/bin/bash
@@ -104,11 +104,11 @@ echo "✅ 商业仓双平台推送完成"
 ```
 
 ```bash
-chmod +x scripts/push-all.sh
-./scripts/push-all.sh
+chmod +x jc-rag-pro-script/push-pro-repo.sh
+./jc-rag-pro-script/push-pro-repo.sh
 ```
 
-类似写 `scripts/push-community-all.sh` (推公开仓双平台):
+公开仓双平台推送对应 `jc-rag-pro-script/push-community-repo.sh` (参考实现):
 
 ```bash
 #!/bin/bash
@@ -132,7 +132,7 @@ echo "✅ 公开仓双平台推送完成"
 # 1. 提交
 git add pro enterprise
 git commit -m "feat: 新增商业版功能"
-./scripts/push-all.sh master
+./jc-rag-pro-script/push-pro-repo.sh master
 # 推送: gitee-origin + github-origin
 ```
 
@@ -148,7 +148,7 @@ git push gitee-origin master
 git push github-origin master
 
 # 3. 推公开仓双平台
-./scripts/push-community-all.sh master
+./jc-rag-pro-script/push-community-repo.sh master
 # 推送: gitee-community + github-community
 ```
 
@@ -267,8 +267,7 @@ git push --all --mirror backup
 
 | 脚本 | 用途 |
 |---|---|
-| `scripts/push-all.sh` | 推商业仓到双平台 |
-| `scripts/push-community-all.sh` | 推公开仓到双平台 |
-| `scripts/sync-community.sh` | 单一平台 subtree push/pull |
-| `scripts/check-sync.sh` | 检查 4 仓库同步状态 |
-| `scripts/setup-remotes.sh` | 配置多 remote |
+| `jc-rag-pro-script/push-pro-repo.sh` | 推商业仓到双平台 |
+| `jc-rag-pro-script/push-community-repo.sh` | 推公开仓到双平台 |
+| `jc-rag-pro-script/sync-community-subtree.sh` | subtree push/pull/status |
+| `jc-rag-pro-script/setup-git-remotes.sh` | 配置多 remote |

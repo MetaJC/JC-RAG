@@ -57,10 +57,22 @@ def _local_model_path(model_id: str) -> Path:
 
 
 def _download_worker() -> None:
-    from huggingface_hub import snapshot_download
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        snapshot_download = None
     while True:
         model_id = _download_queue.get()
         target = _local_model_path(model_id)
+        if snapshot_download is None:
+            # local-model extra 未安装时直接标记失败, 避免任务静默堆积
+            with _download_lock:
+                _download_status[model_id] = {
+                    "status": "failed", "progress": 0,
+                    "message": "本地模型依赖未安装 (huggingface-hub), 请安装: pip install -e .[local-model]",
+                }
+            _download_queue.task_done()
+            continue
         with _download_lock:
             _download_status[model_id] = {"status": "downloading", "progress": 3, "message": "正在准备下载"}
         stop_ticker = threading.Event()
@@ -380,7 +392,10 @@ async def system_resources() -> dict[str, Any]:
 @router.post("/system/verify-model")
 async def system_verify_model(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """验证 Embedding 模型路径是否可用"""
-    from sentence_transformers import SentenceTransformer
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        return {"status": "FAILED", "message": "本地模型依赖未安装 (sentence-transformers), 请安装: pip install -e .[local-model]"}
     model_path = (body.get("modelPath") or "").strip()
     if not model_path:
         return {"status": "FAILED", "message": "模型路径为空"}

@@ -3,7 +3,8 @@
 # 区别: 仅含基础服务 + community Python, 不含 Java 启动模块和 pro Python
 # 用法: docker-compose -f jc-rag-community/docker-compose.yml up -d
 # 注意: Milvus v2.6 standalone 强依赖 etcd (元数据) + minio (对象存储)
-#       minio 同时被 community Python 使用, 是共同依赖, 不能删
+#       minio 实际使用远程服务（启用密码），地址与凭证写在 milvus 服务 environment 中
+#       本地 minio 服务已注释停用，如需切回本地可自行取消注释
 version: "3.8"
 
 services:
@@ -27,22 +28,23 @@ services:
     networks:
       - jc-rag-net
 
-  # ============================ minio (Milvus 对象存储 + RAG 共享) ============================
-  minio:
-    container_name: jc-rag-minio
-    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - ../volumes/minio:/data
-    networks:
-      - jc-rag-net
+  # ============================ minio (已停用: 改用远程 MinIO) ============================
+  # 本地 minio 保留备用, 如需切回本地: 取消注释并把 milvus/python 的地址改回 minio:9000
+  # minio:
+  #   container_name: jc-rag-minio
+  #   image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+  #   restart: unless-stopped
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   volumes:
+  #     - ../volumes/minio:/data
+  #   networks:
+  #     - jc-rag-net
 
   # ============================ milvus standalone ============================
   milvus:
@@ -52,12 +54,15 @@ services:
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: etcd:2379
-      MINIO_ADDRESS: minio:9000
+      # MinIO 使用远程服务（启用密码），替换下方三项为实际远程地址与凭证
+      MINIO_ADDRESS: nas.elastic.org.cn:9999
+      MINIO_ACCESS_KEY_ID: admin
+      MINIO_SECRET_ACCESS_KEY: Nas@MinIO!
+      MINIO_USE_SSL: "false"
     ports:
       - "19530:19530"
     depends_on:
       - etcd
-      - minio
     volumes:
       - ../volumes/milvus:/var/lib/milvus
     networks:
@@ -116,15 +121,13 @@ services:
       - "8000:8000"
     environment:
       - ES_URL=http://elasticsearch:9200
-      - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      # MinIO 地址与凭证配置在 rag_config.yml 的 storage.minio 段（构建时打入镜像）,
+      # 代码不读取 MINIO_* 环境变量, 故此处不再配置
       - MILVUS_HOST=milvus
       - MILVUS_PORT=19530
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     depends_on:
       - elasticsearch
-      - minio
       - milvus
     networks:
       - jc-rag-net

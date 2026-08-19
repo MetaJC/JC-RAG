@@ -387,7 +387,8 @@ jc-rag-pro/                                       ← 商业版仓库根
 │   └── jc-rag-pro-script/
 │       ├── build-pro.sh / .ps1                   ← 一键构建 (含 4 个 dist + 双 enterprise jar)
 │       ├── gen-license.sh / .ps1
-│       └── extract-community.sh                  ← v1.0 拆 community 公开仓
+│       ├── package-release.ps1 / deploy-pro-server.sh ← 发布包收集 / 服务器部署
+│       └── split-community-repo.sh               ← v1.0 拆 community 公开仓
 ├── docker-compose.pro.yml                        ← 商业版编排
 ├── .gitignore / .dockerignore                    ← monorepo 规则 (含 pnpm-store / 4 个 dist)
 └── README.md

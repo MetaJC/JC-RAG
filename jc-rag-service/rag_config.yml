@@ -94,10 +94,11 @@ services:
   springboot_base_url: http://127.0.0.1:8080
 
 storage:
+  # MinIO 使用远程服务（启用密码），替换下方三项为实际远程地址与凭证
   minio:
-    endpoint: http://localhost:9000
-    access_key: minioadmin
-    secret_key: minioadmin
+    endpoint: http://your-minio-host:9000
+    access_key: your-access-key
+    secret_key: your-secret-key
     secure: false
     bucket:
       documents: jc-rag-docs

@@ -19,15 +19,20 @@
 
 ## 二、当前锁定矩阵
 
-| 依赖 | 锁定版本 | 关联约束 | 备注 |
-|---|---|---|---|
-| `transformers` | `==4.45.2` | `huggingface-hub>=0.20.0,<0.30` + `tokenizers<0.21` | 见第三节 |
-| `torch` | `2.4.1+cpu` (用户自选) | + `torch-directml==0.2.5.dev240914` | Arc 140T 配套组合 |
-| `sentence-transformers` | `==3.3.1` | `transformers>=4.41.0,<5.0.0` | 与 4.45.2 同时期官方测试矩阵 |
-| `torch-directml` | `==0.2.5.dev240914` | 锁定 torch 2.4.x | 0.2.5.dev240914 之后无 Windows wheel |
+自 2026-08-19 起，依赖分为**基础依赖**（API 服务 + 文档解析 OCR，跨平台）与 **`local-model` extra**（本地模型推理，隐式拉入 torch）两层：
 
-> 锁定位置：`jc-rag-community/jc-rag-service/pyproject.toml` `dependencies` 段。
-> 用户安装方式：见 `pyproject.toml` 顶部 torch 安装矩阵注释。
+| 依赖 | 锁定版本 | 归属 | 备注 |
+|---|---|---|---|
+| `onnxruntime` | `==1.22.0` | 基础依赖 | OCR 必需，跨平台 CPU wheel |
+| `rapidocr-onnxruntime` / `opencv-python` | `==1.4.4` / `==4.11.0.86` | 基础依赖 | 文档解析 OCR 链路，与 GPU 无关 |
+| `transformers` | `==4.45.2` | `local-model` extra | 见第三节 |
+| `torch` | 不固定 (用户自选) | extra 隐式依赖 | Arc 140T 配套 `2.4.1+cpu` + `torch-directml==0.2.5.dev240914` |
+| `sentence-transformers` | `==3.3.1` | `local-model` extra | `transformers>=4.41.0,<5.0.0`，与 4.45.2 同时期官方测试矩阵 |
+| `torch-directml` | `==0.2.5.dev240914` | 手动安装 (仅 Windows) | 锁定 torch 2.4.x，0.2.5.dev240914 之后无 Windows wheel |
+| `onnxruntime-directml` | `==1.22.0; platform_system == 'Windows'` | `local-model` extra | Windows 专属包，平台标记隔离，Linux 上自动跳过 |
+
+> 锁定位置：`jc-rag-community/jc-rag-service/pyproject.toml` `dependencies` 段与 `[project.optional-dependencies] local-model` 段。
+> 安装方式：纯在线模型部署（`embedding.source: service`）`pip install -e .`；本地模型部署 `pip install -e .[local-model]`，torch 选型见 `pyproject.toml` 顶部安装矩阵注释。
 
 ---
 
@@ -228,6 +233,8 @@ print('dim =', len(v[0]), '| device =', m.get('device'))
 | 2026-07-28 | 修复 `app/embeddings/__init__.py` `_resolve_device` dml 写死 bug，改用 `torch_directml.device()` + lazy init | `app/embeddings/__init__.py` | JC |
 | 2026-07-28 | 修历史错配：torchaudio 2.7.1+cu128 → 2.4.1+cpu + torchvision 0.19.1+cpu | venv | JC |
 | 2026-07-28 | 新增本文档 | `jc-rag-community/jc-rag-docs/ops/dependencies.md` | JC |
+| 2026-08-19 | `onnxruntime-directml` 加 `platform_system == 'Windows'` 平台标记，修复 Linux 部署 `No matching distribution found` | `pyproject.toml` | JC |
+| 2026-08-19 | 依赖分层：本地推理依赖（sentence-transformers/transformers 等）移入 `local-model` extra，纯在线模型部署不再安装 torch；代码入口补 ImportError 守卫 | `pyproject.toml` + `app/embeddings/__init__.py` + `app/api/routers/system.py` | JC |
 
 ---
 

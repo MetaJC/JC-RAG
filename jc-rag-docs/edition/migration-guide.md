@@ -41,7 +41,7 @@ xcopy D:\Project\jc-rag D:\Project\jc-rag-backup-2026xxxx /E /H /I
 
 ```bash
 # 方式 1: 跑脚本 (推荐)
-bash scripts/setup-remotes.sh
+bash jc-rag-pro-script/setup-git-remotes.sh
 # 按提示选 y 添加 community remote
 
 # 方式 2: 手动
@@ -53,8 +53,8 @@ git remote -v
 ### Step 2: 提取 community 历史
 
 ```bash
-# 跑 extract-community.sh
-bash scripts/extract-community.sh
+# 跑 split-community-repo.sh
+bash jc-rag-pro-script/split-community-repo.sh
 
 # 脚本会自动:
 # 1. 验证工作区干净
@@ -81,14 +81,14 @@ du -sh /tmp/test-community
 
 ```bash
 # 在 d:\Project\jc-rag 商业仓跑
-bash jc-rag-pro-script/sync-community.sh status
+bash jc-rag-pro-script/sync-community-subtree.sh status
 # 应显示: 商业仓/公开仓 双向差异 (无)
 
 # 测试 push (改个注释类文件, 不影响功能)
 echo "# 同步测试注释" >> jc-rag-community/jc-rag-docs/README.md
 git add jc-rag-community/jc-rag-docs/README.md
 git commit -m "test: 验证 subtree push 链路"
-bash jc-rag-pro-script/sync-community.sh push
+bash jc-rag-pro-script/sync-community-subtree.sh push
 # 应成功推送到公开仓
 ```
 
@@ -122,14 +122,14 @@ git commit -m "feat: 新增 XX 功能"
 git push origin master
 
 # 4. 推公开仓 (选择性, 商业定制不推)
-bash scripts/sync-community.sh push
+bash jc-rag-pro-script/sync-community-subtree.sh push
 ```
 
 ### 公开仓有 PR 合并 → 拉到商业仓
 
 ```bash
 # 公开仓 PR #42 已合到 master
-bash jc-rag-pro-script/sync-community.sh pull
+bash jc-rag-pro-script/sync-community-subtree.sh pull
 # 商业仓 jc-rag-community/ 自动同步, 一次 commit 记录
 
 git push origin master
@@ -151,7 +151,7 @@ git push origin master
 
 # 4. 商业仓同步
 cd d:\Project\jc-rag
-bash scripts/sync-community.sh pull
+bash jc-rag-pro-script/sync-community-subtree.sh pull
 ```
 
 ## 拆分后仓库结构对比
@@ -181,7 +181,7 @@ bash scripts/sync-community.sh pull
 
 | 脚本 | 用途 |
 |---|---|
-| `scripts/extract-community.sh` | 本次拆分的主脚本 |
-| `scripts/sync-community.sh` | 拆分后日常 push/pull |
-| `scripts/setup-remotes.sh` | 配置双 remote |
-| `scripts/build-pro.sh` | 商业版构建 (不涉及仓库) |
+| `jc-rag-pro-script/split-community-repo.sh` | 本次拆分的主脚本 |
+| `jc-rag-pro-script/sync-community-subtree.sh` | 拆分后日常 push/pull |
+| `jc-rag-pro-script/setup-git-remotes.sh` | 配置双 remote |
+| `jc-rag-pro-script/build-pro.sh` | 商业版构建 (不涉及仓库) |

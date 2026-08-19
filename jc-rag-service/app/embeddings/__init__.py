@@ -183,8 +183,14 @@ def _load_onnx_directml(model_path: str, device_index: int) -> tuple[Any, Any]:
     if cache_key in _onnx_dml_cache:
         return _onnx_dml_cache[cache_key]
 
-    import onnxruntime as ort
-    from transformers import AutoTokenizer
+    try:
+        import onnxruntime as ort
+        from transformers import AutoTokenizer
+    except ImportError as ex:
+        raise RuntimeError(
+            "本地模型推理依赖未安装 (onnxruntime/transformers), "
+            "如需本地 Embedding 模型请安装: pip install -e .[local-model]"
+        ) from ex
 
     onnx_path = Path(model_path) / "onnx" / "model.onnx"
     if not onnx_path.exists():
@@ -224,7 +230,14 @@ def _embed_via_onnx_directml(
 
 
 def _load_model(model_path: str, device: str):
-    from sentence_transformers import SentenceTransformer
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as ex:
+        raise RuntimeError(
+            "本地模型推理依赖未安装 (sentence-transformers/torch), "
+            "纯在线模型部署请将 embedding.source 配置为 service; "
+            "如需本地 Embedding 模型请安装: pip install -e .[local-model]"
+        ) from ex
 
     if not model_path or not Path(model_path).exists():
         raise ValueError(f"embedding.model_path 不存在或不可访问：{model_path}")
