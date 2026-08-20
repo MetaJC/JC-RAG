@@ -13,6 +13,19 @@ from app.core.config import Settings
 # 避免本应直连本地 11434 的请求被发到 127.0.0.1:7897 等代理端口
 _OLLAMA_LIMITS = httpx.Limits(max_keepalive_connections=0, max_connections=20)
 
+# 在线模型走远程 HTTPS, 不受上述 localhost 502 影响: 启用 keep-alive 并复用全局 client,
+# 避免每次提问重新 TCP+TLS 握手 (直接计入首 token 延迟)
+_ONLINE_LIMITS = httpx.Limits(max_keepalive_connections=10, max_connections=20)
+_online_client: httpx.AsyncClient | None = None
+
+
+def _get_online_client() -> httpx.AsyncClient:
+    """获取全局共享的在线 LLM AsyncClient (懒加载, 进程级复用连接池)."""
+    global _online_client
+    if _online_client is None or _online_client.is_closed:
+        _online_client = httpx.AsyncClient(timeout=120.0, limits=_ONLINE_LIMITS, trust_env=False)
+    return _online_client
+
 
 class ProviderFactory:
     def __init__(self, settings: Settings) -> None:
@@ -402,51 +415,68 @@ class ProviderFactory:
         _safe_payload["_url"] = url
         _logger.info(f"_stream_generate_online request: {json.dumps(_safe_payload)}")
 
-        async with httpx.AsyncClient(timeout=120.0, limits=_OLLAMA_LIMITS, trust_env=False) as client:
-            async with client.stream("POST", url, json=payload, headers=headers) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    _logger.error(f"LLM 400: url={url}, status={response.status_code}, body={body.decode('utf-8', errors='replace')[:1000]}")
-                    _logger.error(f"LLM 400 payload keys: {list(payload.keys())}, model={payload.get('model')}")
-                response.raise_for_status()
-                # 调试: 记录 content-type, 确认服务端返回的格式
-                _logger.info(f"_stream_generate_online response: status={response.status_code}, content_type={response.headers.get('content-type')}")
-                _line_count = 0
-                _chunk_count = 0
-                _first_raw = None
-                async for line in response.aiter_lines():
-                    _line_count += 1
-                    line = (line or "").strip()
-                    if not line:
-                        continue
-                    if _first_raw is None:
-                        _first_raw = line[:300]
-                    if not line.startswith("data:"):
-                        # 调试: 记录非 data: 行, 帮助定位是否服务端返回了非 SSE 格式
-                        if not line.startswith(":"):
-                            _logger.info(f"_stream_generate_online non-data line: {line[:200]}")
-                        continue
-                    raw = line[5:].strip()
-                    if raw == "[DONE]":
-                        _logger.info(f"_stream_generate_online: done received, total_lines={_line_count}, chunks_yielded={_chunk_count}")
-                        break
-                    import json
-                    try:
-                        data = json.loads(raw)
-                    except Exception as ex:
-                        _logger.warning(f"_stream_generate_online json parse failed: {ex}, raw={raw[:200]}")
-                        continue
-                    choices = data.get("choices", [])
-                    if not choices:
-                        # 调试: 记录没有 choices 的事件 (例如 usage / error 事件)
-                        _logger.info(f"_stream_generate_online no-choices event: {str(data)[:200]}")
-                        continue
-                    delta = choices[0].get("delta", {})
-                    chunk = delta.get("content", "")
-                    if chunk:
-                        _chunk_count += 1
-                        yield chunk
-                    # 检测流式结束 (finish_reason 不为 null/None 时)
-                    finish_reason = choices[0].get("finish_reason")
-                    if finish_reason and finish_reason != "null":
-                        _logger.info(f"_stream_generate_online finish_reason={finish_reason}, total_lines={_line_count}, chunks_yielded={_chunk_count}, first_raw={_first_raw}")
+        # 复用全局 client (keep-alive), 避免每请求 TCP+TLS 握手; stream 上下文只关闭响应, 不关闭 client
+        client = _get_online_client()
+        async with client.stream("POST", url, json=payload, headers=headers) as response:
+            if response.status_code >= 400:
+                body = await response.aread()
+                _logger.error(f"LLM 400: url={url}, status={response.status_code}, body={body.decode('utf-8', errors='replace')[:1000]}")
+                _logger.error(f"LLM 400 payload keys: {list(payload.keys())}, model={payload.get('model')}")
+            response.raise_for_status()
+            # 调试: 记录 content-type, 确认服务端返回的格式
+            _logger.info(f"_stream_generate_online response: status={response.status_code}, content_type={response.headers.get('content-type')}")
+            _line_count = 0
+            _chunk_count = 0
+            _first_raw = None
+            # 深度思考: DeepSeek-R1/Qwen3 等在线模型的思考内容走 delta.reasoning_content 字段,
+            # 这里包装为 <think>...</think> 标签混入内容流, 与本地模型的输出格式统一 (前端按标签解析)
+            _reasoning_open = False
+            async for line in response.aiter_lines():
+                _line_count += 1
+                line = (line or "").strip()
+                if not line:
+                    continue
+                if _first_raw is None:
+                    _first_raw = line[:300]
+                if not line.startswith("data:"):
+                    # 调试: 记录非 data: 行, 帮助定位是否服务端返回了非 SSE 格式
+                    if not line.startswith(":"):
+                        _logger.info(f"_stream_generate_online non-data line: {line[:200]}")
+                    continue
+                raw = line[5:].strip()
+                if raw == "[DONE]":
+                    _logger.info(f"_stream_generate_online: done received, total_lines={_line_count}, chunks_yielded={_chunk_count}")
+                    break
+                import json
+                try:
+                    data = json.loads(raw)
+                except Exception as ex:
+                    _logger.warning(f"_stream_generate_online json parse failed: {ex}, raw={raw[:200]}")
+                    continue
+                choices = data.get("choices", [])
+                if not choices:
+                    # 调试: 记录没有 choices 的事件 (例如 usage / error 事件)
+                    _logger.info(f"_stream_generate_online no-choices event: {str(data)[:200]}")
+                    continue
+                delta = choices[0].get("delta", {})
+                reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                chunk = delta.get("content", "")
+                if reasoning:
+                    if not _reasoning_open:
+                        yield "<think>"
+                        _reasoning_open = True
+                    _chunk_count += 1
+                    yield reasoning
+                if chunk:
+                    if _reasoning_open:
+                        yield "</think>"
+                        _reasoning_open = False
+                    _chunk_count += 1
+                    yield chunk
+                # 检测流式结束 (finish_reason 不为 null/None 时)
+                finish_reason = choices[0].get("finish_reason")
+                if finish_reason and finish_reason != "null":
+                    _logger.info(f"_stream_generate_online finish_reason={finish_reason}, total_lines={_line_count}, chunks_yielded={_chunk_count}, first_raw={_first_raw}")
+            # 容错: 流异常结束时思考块未闭合, 补上闭合标签避免前端解析悬挂
+            if _reasoning_open:
+                yield "</think>"

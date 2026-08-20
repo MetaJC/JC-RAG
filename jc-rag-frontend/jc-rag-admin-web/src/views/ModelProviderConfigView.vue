@@ -46,8 +46,22 @@ const filtered = computed(() => providers.filter(item => item.type === providerM
 /** 按名称推断模型类型 (用于 L3 实时刷新与兼容旧内置列表) */
 function guessType(name: string): string { const v = name.toLowerCase(); if (/(embed|bge|e5|m3e|gte|text2vec)/.test(v)) return 'embedding'; if (/rerank/.test(v)) return 'rerank'; if (/(dall-e|flux|stable-diffusion|imagen|cogview|image-gen)/.test(v)) return 'image'; if (/(video|wan2|cogvideo|sora)/.test(v)) return 'video'; if (/(whisper|tts|speech|audio)/.test(v)) return 'audio'; return 'chat' }
 /** 服务商当前生效的模型列表: L3 实时结果 > L1/L2 目录 > 内置兑底 */
+/** Ollama 原始 capabilities (vision/completion/tools/thinking) → 目录模型的 inputs/features 结构, 供 capabilitiesFor 展示能力标签 */
+function ollamaCapsToItem(name: string): CatalogModelItem {
+  const caps = systemStore.offlineModelDetails[name] ?? []
+  const inputs: string[] = []
+  const features: string[] = []
+  if (caps.includes('vision')) inputs.push('image')
+  if (caps.includes('thinking')) features.push('thinking')
+  if (caps.includes('tools')) features.push('tool-call')
+  return { name, type: guessType(name), inputs, features }
+}
+/** 服务商当前生效的模型列表: L3 实时结果 > L1/L2 目录 > 内置兑底 */
 function modelsFor(providerId: string): CatalogModelItem[] {
-  if (providerId === 'ollama') return systemStore.offlineModelOptions.map(name => ({ name, type: 'chat' }))
+  // ollama: 使用全局列表 (含 /api/tags 返回的真实 capabilities); liveModels 只有名称没有能力, 不参与 ollama
+  if (providerId === 'ollama') {
+    return systemStore.offlineModelOptions.map(ollamaCapsToItem)
+  }
   if (liveModels[providerId]?.length) return liveModels[providerId]
   const entry = catalog.value.providers.find(item => item.id === providerId)
   if (entry?.models?.length) return entry.models
@@ -120,7 +134,7 @@ async function persist(message=false) {
   } catch { ElMessage.error('自动保存失败') } finally { saving.value=false }
 }
 async function testConnection() { if(!form.baseUrl){ElMessage.warning('请先填写服务地址');return}; testing.value=true; try { const plainKey = apiKeyEditing.value ? form.apiKey : ''; const result=await testModelProvider({id:saved(selected.value)?.id,providerName:selected.value.id,providerType:selected.value.id==='ollama'?'OLLAMA':selected.value.type==='offline'?'OFFLINE':'ONLINE',endpoint:form.baseUrl,apiKey:plainKey}); if(result.success){ if(plainKey) await persist(false); ElMessage.success(result.message) } else { ElMessage.error(result.message) } } finally { testing.value=false } }
-async function refreshModels() { const record=saved(selected.value); if(!record){ElMessage.warning('请先完成配置');return}; refreshing.value=true; try { const models=await refreshProviderModels(record.id); if(selected.value.id==='ollama')await systemStore.refreshOfflineModels(); if(models.length)liveModels[selected.value.id]=models.map(name=>({name,type:guessType(name)})); ElMessage.success(models.length?`已获取 ${models.length} 个模型`:'未获取到模型') } finally { refreshing.value=false } }
+async function refreshModels() { const record=saved(selected.value); if(!record){ElMessage.warning('请先完成配置');return}; refreshing.value=true; try { const models=await refreshProviderModels(record.id); if(selected.value.id==='ollama')await systemStore.refreshOfflineModels(); else if(models.length)liveModels[selected.value.id]=models.map(name=>({name,type:guessType(name)})); ElMessage.success(models.length?`已获取 ${models.length} 个模型`:'未获取到模型') } finally { refreshing.value=false } }
 async function updateCatalog() { updatingCatalog.value=true; try { catalog.value=await refreshModelCatalog(); ElMessage.success(`模型目录已更新${catalog.value.version?`（${catalog.value.version}）`:''}`) } catch (error) { ElMessage.error((error as Error).message||'模型目录更新失败，请检查远程目录地址配置') } finally { updatingCatalog.value=false } }
 watch(providerMode,()=>{const next=filtered.value[0];if(next)selectProvider(next)})
 onMounted(async()=>{await Promise.all([systemStore.loadRuntimeConfig(false),loadProviders(),loadCatalog()]);selectProvider(defaultProvider)})

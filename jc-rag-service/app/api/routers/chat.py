@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import (
     _build_kb_filter,
@@ -57,7 +58,6 @@ async def chat_ask_stream(request: ChatAskRequest):
         payload.get("similarityThreshold") or settings.retrieval.similarity_threshold
     )
     embedding_override = _extract_embedding_override(payload)
-    query_vector = _build_query_vector(question, settings, embedding_override)
     provider_override = payload.get("providerOverride")
     system_prompt = payload.get("systemPrompt")
     agent_id = payload.get("agentId")
@@ -78,70 +78,80 @@ async def chat_ask_stream(request: ChatAskRequest):
                 break
         return msgs
 
-    async def _gen():
+    def _retrieve() -> tuple[list[str], list[dict]]:
+        """同步检索 (query embedding + 向量检索 + 文本兜底).
+        <p>性能: 仅在 kb_id 存在时计算 query 向量 (此前无条件 embedding, 无知识库也白算);
+        整体由 run_in_threadpool 调度, 避免同步 embedding/ES 客户端阻塞事件循环."""
+        context_lines: list[str] = []
+        references: list[dict] = []
+        if kb_id is None:
+            return context_lines, references
         try:
-            context_lines: list[str] = []
-            references: list[dict] = []
-            if kb_id is not None:
+            query_vector = _build_query_vector(question, settings, embedding_override)
+            vs = get_vector_store()
+            vec_hits = vs.vector_search(
+                query_vector,
+                filter=kb_filter,
+                top_k=top_k,
+                top_n=top_n,
+            )
+            # [DIAG] 排查 AI 不基于知识库: 打印 kbId / 命中数 / 命中 chunk_text 前 60 字
+            logger.warning(
+                "[DIAG_RETRIEVE] kb_id=%s hits=%d filter=%s top_k=%d",
+                kb_id, len(vec_hits),
+                kb_filter.to_milvus() if kb_filter else None,
+                top_k,
+            )
+            for h in vec_hits[:3]:
+                src = h.get("_source") or {}
+                logger.warning(
+                    "[DIAG_HIT] chunk_id=%s score=%s text=%r",
+                    src.get("chunk_id"), h.get("_score"),
+                    str(src.get("chunk_text") or "")[:60],
+                )
+            for h in vec_hits:
+                src = h.get("_source") or {}
+                text = str(src.get("chunk_text") or "").strip()
+                if text:
+                    context_lines.append(text)
+                    references.append({
+                        "chunkId": src.get("chunk_id"),
+                        "documentId": src.get("document_id"),
+                        "fileName": src.get("file_name"),
+                        "score": h.get("_score"),
+                        "excerpt": text[:160],
+                    })
+            if not vec_hits:
                 try:
                     vs = get_vector_store()
-                    vec_hits = vs.vector_search(
-                        query_vector,
-                        filter=kb_filter,
-                        top_k=top_k,
-                        top_n=top_n,
-                    )
-                    # [DIAG] 排查 AI 不基于知识库: 打印 kbId / 命中数 / 命中 chunk_text 前 60 字
-                    logger.warning(
-                        "[DIAG_RETRIEVE] kb_id=%s hits=%d filter=%s top_k=%d",
-                        kb_id, len(vec_hits),
-                        kb_filter.to_milvus() if kb_filter else None,
-                        top_k,
-                    )
-                    for h in vec_hits[:3]:
-                        src = h.get("_source") or {}
-                        logger.warning(
-                            "[DIAG_HIT] chunk_id=%s score=%s text=%r",
-                            src.get("chunk_id"), h.get("_score"),
-                            str(src.get("chunk_text") or "")[:60],
-                        )
-                    for h in vec_hits:
-                        src = h.get("_source") or {}
-                        text = str(src.get("chunk_text") or "").strip()
-                        if text:
-                            context_lines.append(text)
-                            references.append({
-                                "chunkId": src.get("chunk_id"),
-                                "documentId": src.get("document_id"),
-                                "fileName": src.get("file_name"),
-                                "score": h.get("_score"),
-                                "excerpt": text[:160],
-                            })
-                    if not vec_hits:
-                        try:
-                            vs = get_vector_store()
-                            for text_query in _build_text_queries(question):
-                                text_hits = vs.text_search(text_query, filter=kb_filter, top_k=top_k)
-                                for h in text_hits:
-                                    src = h.get("_source") or {}
-                                    text = str(src.get("chunk_text") or "").strip()
-                                    if text and text not in context_lines:
-                                        context_lines.append(text)
-                                        references.append({
-                                            "chunkId": src.get("chunk_id"),
-                                            "documentId": src.get("document_id"),
-                                            "fileName": src.get("file_name"),
-                                            "score": h.get("_score"),
-                                            "excerpt": text[:160],
-                                        })
-                                if context_lines:
-                                    break
-                        except Exception:
-                            pass
-                except Exception as ex:
-                    logger.warning("vector_search failed: %s", str(ex))
+                    for text_query in _build_text_queries(question):
+                        text_hits = vs.text_search(text_query, filter=kb_filter, top_k=top_k)
+                        for h in text_hits:
+                            src = h.get("_source") or {}
+                            text = str(src.get("chunk_text") or "").strip()
+                            if text and text not in context_lines:
+                                context_lines.append(text)
+                                references.append({
+                                    "chunkId": src.get("chunk_id"),
+                                    "documentId": src.get("document_id"),
+                                    "fileName": src.get("file_name"),
+                                    "score": h.get("_score"),
+                                    "excerpt": text[:160],
+                                })
+                        if context_lines:
+                            break
+                except Exception:
+                    pass
+        except Exception as ex:
+            logger.warning("vector_search failed: %s", str(ex))
+        return context_lines, references
 
+    async def _gen():
+        try:
+            # 首字节先行: 检索/LLM 准备期间前端立即收到事件, 避免长时间无任何响应
             yield f"data: {json.dumps({'type': 'thinking', 'message': '正在准备回答...'}, ensure_ascii=False)}\n\n"
+
+            context_lines, references = await run_in_threadpool(_retrieve)
 
             rag_prompt = ""
             if context_lines:
@@ -243,7 +253,6 @@ async def chat_ask(request: ChatAskRequest) -> dict:
         payload.get("similarityThreshold") or settings.retrieval.similarity_threshold
     )
     embedding_override = _extract_embedding_override(payload)
-    query_vector = _build_query_vector(question, settings, embedding_override)
     provider_override = payload.get("providerOverride")
     system_prompt = payload.get("systemPrompt")
     agent_id = payload.get("agentId")
@@ -252,10 +261,14 @@ async def chat_ask(request: ChatAskRequest) -> dict:
     history = payload.get("history") or []
     chat_template_kwargs = payload.get("chatTemplateKwargs")
 
-    context_lines: list[str] = []
-    references: list[dict] = []
-    if kb_id is not None:
+    def _retrieve() -> tuple[list[str], list[dict]]:
+        """同步检索: 仅 kb_id 存在时计算 query 向量; 由 run_in_threadpool 调度, 避免阻塞事件循环."""
+        context_lines: list[str] = []
+        references: list[dict] = []
+        if kb_id is None:
+            return context_lines, references
         try:
+            query_vector = _build_query_vector(question, settings, embedding_override)
             vs = get_vector_store()
             vec_hits = vs.vector_search(
                 query_vector,
@@ -298,6 +311,9 @@ async def chat_ask(request: ChatAskRequest) -> dict:
                     pass
         except Exception as ex:
             logger.warning("vector_search failed: %s", str(ex))
+        return context_lines, references
+
+    context_lines, references = await run_in_threadpool(_retrieve)
 
     rag_prompt = ""
     if context_lines:

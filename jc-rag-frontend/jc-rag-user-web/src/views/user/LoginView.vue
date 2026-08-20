@@ -7,7 +7,7 @@ import { userApi } from '../../api/user'
 import SlideCaptcha from '../../components/SlideCaptcha.vue'
 import {
   CAPTCHA_STATE_PREFIX, LOGIN_TAB_STORAGE_KEY, PHONE_STORAGE_KEY,
-  SESSION_READY_KEY, SMS_COUNTDOWN_KEY_PREFIX,
+  SMS_COUNTDOWN_KEY_PREFIX,
 } from '../../utils/login-state'
 
 type TabKey = 'account' | 'code' | 'third'
@@ -324,22 +324,7 @@ async function onAccountLogin() {
     captchaRef.value?.reset()
     clearCaptchaState('account:' + accountForm.username)
     console.log('[Login] success, verifying session before navigation, pathname:', window.location.pathname)
-    // 关键修复: 登录后先验证会话已就绪再跳转, 避免后端 session 写入与浏览器 cookie 应用存在时差
-    // 导致 ChatHomeView 首次 /auth/me 请求 401 → 被 http 拦截器重定向回 /login
-    try {
-      const me = await userApi.currentUser()
-      if (!me?.authenticated) {
-        console.warn('[Login] /auth/me not authenticated after login, retrying once...')
-        await new Promise(resolve => setTimeout(resolve, 150))
-        const me2 = await userApi.currentUser()
-        if (!me2?.authenticated) throw new Error('会话未生效, 请重试')
-      }
-    } catch (verifyErr) {
-      console.error('[Login] session verify failed:', verifyErr)
-      ElMessage.error('登录状态同步失败, 请重试')
-      loading.value = false
-      return
-    }
+    // 会话就绪验证合并到下方轮询循环统一执行 (此前此处先验一次、finally 后再轮询, 重复 2 次 currentUser)
   } catch (e: any) {
     console.error('[Login] caught error:', e?.message, 'response:', e?.response?.data)
     const data = e?.response?.data
@@ -378,8 +363,6 @@ async function onAccountLogin() {
     ElMessage.error('登录态验证失败, 请重试')
     return
   }
-  // 通知 ChatHomeView 走"从登录来"分支, 延迟更久再发请求
-  sessionStorage.setItem(SESSION_READY_KEY, String(Date.now()))
   await router.push('/chat').catch(err => console.error('[LoginView] router.push error:', err))
 }
 
@@ -471,7 +454,6 @@ async function onCodeLogin() {
     ElMessage.error('登录态验证失败, 请重试')
     return
   }
-  sessionStorage.setItem(SESSION_READY_KEY, String(Date.now()))
   await router.push('/chat').catch(err => console.error('[LoginView] router.push error:', err))
 }
 

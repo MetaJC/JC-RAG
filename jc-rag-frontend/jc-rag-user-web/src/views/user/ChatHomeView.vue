@@ -18,8 +18,9 @@ import { userApi, userApiBase, isUnauthorizedError, extractErrorMessage } from '
 import { clearLoginLocalState } from '../../utils/login-state'
 import PreferencesDialog from '../../components/PreferencesDialog.vue'
 
-const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
-const QUOTE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 14 21 3"/><path d="M21 3h-6"/><path d="M21 3v6"/><path d="M14 10H8a5 5 0 1 0 0 10h10"/></svg>'
+const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+// 引用图标: 自右上起笔、经圆角向下拐弯后指向左侧的弧形箭头 (corner-right-down-left)
+const QUOTE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4v5a4 4 0 0 1-4 4H6"/><polyline points="10 8 5 13 10 18"/></svg>'
 
 const markdown = new MarkdownIt({
   html: false,
@@ -37,7 +38,8 @@ markdown.renderer.rules.fence = (tokens: Array<{ info?: string; content: string 
   const highlighted = language
     ? hljs.highlight(token.content, { language, ignoreIllegals: true }).value
     : markdown.utils.escapeHtml(token.content)
-  const encodedCode = encodeURIComponent(token.content)
+  // base64 编码原始代码, 避免 encodeURIComponent 在 HTML 属性中被 UTF-8 转义导致数据损坏
+  const encodedCode = btoa(unescape(encodeURIComponent(token.content)))
   return `
     <div class="code-block-shell">
       <div class="code-toolbar">
@@ -141,7 +143,10 @@ const messageScroller = ref<HTMLDivElement | null>(null)
 let currentAbortController: AbortController | null = null
 const creating = ref(false)
 const showSidebar = ref(true)
-const deepThinking = ref(true)
+// 深度思考默认关闭 (用户可手动开启); 仅当前模型支持思考时才展示开关
+const deepThinking = ref(false)
+/** 当前模型是否支持思考 (由 /model/info capabilities 中的 "thinking" 决定), 不支持则隐藏深度思考开关 */
+const modelSupportsThinking = ref(false)
 const pageStyle = ref<'standard' | 'wide'>(lsGet(LS_PAGE_STYLE) === 'wide' ? 'wide' : 'standard')
 function getInitialFontSize(): number {
   try {
@@ -388,6 +393,8 @@ function processDeltaChunk(msg: Msg, chunk: string, deepThinking: boolean) {
       if (msg.thinkingStartTime) {
         msg.thinkingElapsedSec = Math.max(1, Math.round((Date.now() - msg.thinkingStartTime) / 1000))
       }
+      // 思考完成立即自动折叠 (配合 think-collapse 的 grid-rows 过渡, 动效丝滑), 不必等到流结束
+      if (deepThinking) msg.thinkingExpanded = false
     } else {
       // AFTER_THINK: 后续内容全部进 messageContent
       msg.messageContent += msg.thinkParseBuf
@@ -474,19 +481,6 @@ async function scrollToBottom() {
 onMounted(async () => {
   // 工具: 延迟
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
-  // 如果是从 LoginView 跳过来的 (新 session 刚建立), 多等一会再发请求
-  // 解决"已登录浏览器残留旧 cookie"导致的 ChatHomeView 首次 401
-  const fromLogin = sessionStorage.getItem('jc_rag_session_ready')
-  if (fromLogin) {
-    const ts = parseInt(fromLogin, 10)
-    const elapsed = Date.now() - ts
-    if (elapsed < 1500) {
-      const wait = 1500 - elapsed
-      console.log('[ChatHome] from-login detected, wait', wait, 'ms for cookie to stabilize')
-      await sleep(wait)
-    }
-    sessionStorage.removeItem('jc_rag_session_ready')
-  }
   // 工具: 带 retry 的 currentUser, 处理冷启动 cookie 同步慢导致首次 401
   const currentUserWithRetry = async (maxRetry = 2) => {
     let lastErr: any
@@ -515,38 +509,39 @@ onMounted(async () => {
     const user = await currentUserWithRetry(2)
     console.log('[ChatHome] /auth/me response:', user)
     if (!user.authenticated) { console.log('[ChatHome] not authenticated, redirect'); router.push('/login'); return }
-    // 串行拉基础数据: 任一失败立即弹错, 不静默
-    try {
-      knowledgeBases.value = await userApi.listKnowledgeBases()
-      console.log('[ChatHome] listKnowledgeBases ok, count=', knowledgeBases.value.length)
-    } catch (e) {
-      console.error('[ChatHome] listKnowledgeBases failed:', e)
-      throw e
+    // 性能: 基础数据全部并行拉取 (此前逐个串行 await, 首载耗时 = 各接口耗时之和; 并行后 ≈ 最慢的一个)
+    const [kbR, kbCfgR, agentsR, , , sessR] = await Promise.allSettled([
+      userApi.listKnowledgeBases(),
+      userApi.getKbSelectConfig(),
+      userApi.listAgents(),
+      loadCustomAgents(),
+      loadBuiltinAgents(),
+      syncSessions(null, true),
+    ])
+    // 知识库/智能体/会话是关键数据, 失败即弹错 (保持原串行版本的语义)
+    if (kbR.status === 'fulfilled') {
+      knowledgeBases.value = kbR.value || []
+    } else {
+      console.error('[ChatHome] listKnowledgeBases failed:', kbR.reason)
+      throw kbR.reason
     }
-    try {
-      kbSelectConfig.value = await userApi.getKbSelectConfig() || { mode: 'EMPTY', defaultKb: null, options: [] }
-      console.log('[ChatHome] getKbSelectConfig ok, mode=', kbSelectConfig.value?.mode)
-    } catch (e) {
-      console.warn('[ChatHome] getKbSelectConfig failed, fallback:', e)
+    if (kbCfgR.status === 'fulfilled' && kbCfgR.value) {
+      kbSelectConfig.value = kbCfgR.value
+    } else {
+      if (kbCfgR.status === 'rejected') console.warn('[ChatHome] getKbSelectConfig failed, fallback:', kbCfgR.reason)
       kbSelectConfig.value = { mode: 'EMPTY', defaultKb: null, options: knowledgeBases.value }
     }
-    try {
-      agents.value = await userApi.listAgents()
-      console.log('[ChatHome] listAgents ok, count=', agents.value.length)
-    } catch (e) {
-      console.error('[ChatHome] listAgents failed:', e)
-      throw e
+    if (agentsR.status === 'fulfilled') {
+      agents.value = agentsR.value || []
+    } else {
+      console.error('[ChatHome] listAgents failed:', agentsR.reason)
+      throw agentsR.reason
     }
-    // 自建 + 内建 独立 try, 单个失败不影响主流程
-    try { await loadCustomAgents() } catch (e) { console.warn('[ChatHome] loadCustomAgents failed:', e) }
-    try { await loadBuiltinAgents() } catch (e) { console.warn('[ChatHome] loadBuiltinAgents failed:', e) }
-    try {
-      await syncSessions(null, true)
-      console.log('[ChatHome] syncSessions ok, count=', sessions.value.length)
-    } catch (e) {
-      console.error('[ChatHome] syncSessions failed:', e)
-      throw e
+    if (sessR.status === 'rejected') {
+      console.error('[ChatHome] syncSessions failed:', sessR.reason)
+      throw sessR.reason
     }
+    console.log('[ChatHome] base data loaded (parallel), kbs=', knowledgeBases.value.length, 'agents=', agents.value.length, 'sessions=', sessions.value.length)
     restoreFromCache()
     if (kbSelectConfig.value?.mode === 'FIXED') {
       selectedKnowledgeBaseId.value = kbSelectConfig.value?.defaultKb?.id ?? null
@@ -590,12 +585,18 @@ onActivated(async () => {
     try {
       const user = await userApi.currentUser()
       if (!user.authenticated) { router.push('/login'); return }
-      knowledgeBases.value = await userApi.listKnowledgeBases()
-      kbSelectConfig.value = await userApi.getKbSelectConfig() || { mode: 'EMPTY', defaultKb: null, options: [] }
-      agents.value = await userApi.listAgents()
-      try { await loadCustomAgents() } catch (e) { console.warn('[ChatHome] onActivated loadCustomAgents failed:', e) }
-      try { await loadBuiltinAgents() } catch (e) { console.warn('[ChatHome] onActivated loadBuiltinAgents failed:', e) }
-      await syncSessions(null, true)
+      // 性能: 与 onMounted 一致, 基础数据并行拉取
+      const [kbR, kbCfgR, agentsR, , ,] = await Promise.allSettled([
+        userApi.listKnowledgeBases(),
+        userApi.getKbSelectConfig(),
+        userApi.listAgents(),
+        loadCustomAgents(),
+        loadBuiltinAgents(),
+        syncSessions(null, true),
+      ])
+      if (kbR.status === 'fulfilled') knowledgeBases.value = kbR.value || []
+      kbSelectConfig.value = kbCfgR.status === 'fulfilled' && kbCfgR.value ? kbCfgR.value : { mode: 'EMPTY', defaultKb: null, options: [] }
+      if (agentsR.status === 'fulfilled') agents.value = agentsR.value || []
       restoreFromCache()
       if (kbSelectConfig.value?.mode === 'FIXED') {
         selectedKnowledgeBaseId.value = kbSelectConfig.value?.defaultKb?.id ?? null
@@ -727,17 +728,70 @@ async function handleSessionCommand(command: any, session: { id: number; isPinne
 
 function copyMessage(text: string) {
   const plain = stripHtmlTags(text)
+  // navigator.clipboard 仅在安全上下文(https/localhost)可用, 且可能因权限被拒绝;
+  // 非安全上下文或写入失败时降级为 execCommand('copy'), 保证 http 部署下复制按钮可用
+  const fallbackCopy = (content: string): boolean => {
+    const ta = document.createElement('textarea')
+    ta.value = content
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    let ok = false
+    try { ok = document.execCommand('copy') } catch { ok = false }
+    document.body.removeChild(ta)
+    return ok
+  }
+  const useClipboardApi = typeof navigator !== 'undefined' && !!navigator.clipboard && window.isSecureContext
+  if (!useClipboardApi) {
+    if (fallbackCopy(plain)) ElMessage.success('已复制到剪贴板')
+    else ElMessage.error('复制失败，请手动选择文本复制')
+    return
+  }
   navigator.clipboard.writeText(plain).then(
     () => ElMessage.success('已复制到剪贴板'),
-    () => ElMessage.error('复制失败'),
+    () => {
+      if (fallbackCopy(plain)) ElMessage.success('已复制到剪贴板')
+      else ElMessage.error('复制失败，请手动选择文本复制')
+    },
   )
 }
 
-function quoteMessage(text: string, roleType: string) {
-  const plain = stripHtmlTags(text)
+function quoteMessage(text: string, roleType: string, skipStrip = false) {
+  const plain = skipStrip ? String(text ?? '') : stripHtmlTags(text)
   quotedText.value = plain
   quoteSource.value = roleType === 'USER' ? '用户提问' : 'AI 回答'
   ElMessage.success('已引用，发送时将附带引用内容')
+}
+
+/** 代码块专用复制: 直接复制原始代码文本, 不做 HTML 标签剥离 (代码块内容来自 base64 解码, 已是纯文本).
+ *  成功不弹顶部消息 (由调用方 flashCodeCopied 做 icon 变绿勾的本地反馈), 失败仍弹错误提示. */
+function copyCodeText(text: string) {
+  const plain = text || ''
+  const fallbackCopy = (content: string): boolean => {
+    const ta = document.createElement('textarea')
+    ta.value = content
+    ta.style.position = 'fixed'
+    ta.style.top = '-9999px'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    let ok = false
+    try { ok = document.execCommand('copy') } catch { ok = false }
+    document.body.removeChild(ta)
+    return ok
+  }
+  const useClipboardApi = typeof navigator !== 'undefined' && !!navigator.clipboard && window.isSecureContext
+  if (!useClipboardApi) {
+    if (!fallbackCopy(plain)) ElMessage.error('复制失败，请手动选择文本复制')
+    return
+  }
+  navigator.clipboard.writeText(plain).catch(() => {
+    if (!fallbackCopy(plain)) ElMessage.error('复制失败，请手动选择文本复制')
+  })
 }
 
 function clearQuote() {
@@ -749,16 +803,53 @@ function stripHtmlTags(text: string) {
   return String(text ?? '').replace(/<[^>]*>/g, '')
 }
 
-function onChatAreaClick(event: MouseEvent) {
-  const target = event.target instanceof HTMLElement ? event.target.closest('[data-action]') as HTMLElement | null : null
+// 复制成功对勾 icon (临时替换复制 icon, 3 秒后复原)
+const CODE_CHECK_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+/** 各代码块复制按钮的复原定时器 (同一按钮连续点击时先清旧定时器) */
+const copyFlashTimers = new WeakMap<HTMLElement, number>()
+
+/** 复制成功反馈: 按钮 icon 换成绿色对勾, 3 秒后自动复原 (不弹顶部消息) */
+function flashCodeCopied(btn: HTMLElement) {
+  const prev = copyFlashTimers.get(btn)
+  if (prev) clearTimeout(prev)
+  if (!btn.dataset.originIcon) btn.dataset.originIcon = btn.innerHTML
+  btn.innerHTML = CODE_CHECK_ICON
+  btn.classList.add('is-copied')
+  const timer = window.setTimeout(() => {
+    btn.innerHTML = btn.dataset.originIcon || COPY_ICON
+    btn.classList.remove('is-copied')
+  }, 3000)
+  copyFlashTimers.set(btn, timer)
+}
+
+/**
+ * 代码块按钮事件处理 (复制/引用).
+ * 使用 mousedown 而非 click: 流式输出期间 v-html 每个批次整体重建 DOM,
+ * mousedown 与 mouseup 之间节点可能被替换导致 click 不派发; mousedown 时节点必存在, 按下即处理.
+ * target 用 Element 判断: 按钮内的 svg/rect/path 是 SVGElement (不是 HTMLElement),
+ * 此前用 HTMLElement 判断导致点击图标本体被直接忽略, 只有点中按钮边缘空白才生效.
+ */
+function onChatAreaMouseDown(event: MouseEvent) {
+  if (event.button !== 0) return
+  const target = event.target instanceof Element ? event.target.closest('[data-action]') as HTMLElement | null : null
   if (!target) return
   const action = target.dataset.action
-  const code = decodeURIComponent(target.dataset.code ?? '')
+  // base64 解码, 还原原始代码文本
+  let code = ''
+  try {
+    code = decodeURIComponent(escape(atob(target.dataset.code ?? '')))
+  } catch {
+    code = ''
+  }
   if (!code) return
   if (action === 'copy-code') {
-    copyMessage(code)
+    event.preventDefault()
+    copyCodeText(code)
+    flashCodeCopied(target)
   } else if (action === 'quote-code') {
-    quoteMessage(code, 'ASSISTANT')
+    event.preventDefault()
+    // 代码块引用: 跳过 HTML 标签剥离, 保留原始代码 (含 < > 等字符)
+    quoteMessage(code, 'ASSISTANT', true)
   }
 }
 
@@ -774,6 +865,8 @@ async function onAsk() {
 
   question.value = ''
   const q = finalQuestion
+  // 仅当模型支持思考且用户开启时才启用; 关闭时模型直接输出正文 (后端同步下发 enable_thinking=false)
+  const useDeepThinking = deepThinking.value && modelSupportsThinking.value
   const currentAttachments = [...pendingAttachments.value]
   pendingAttachments.value = []
   const userId = -Date.now()
@@ -782,7 +875,7 @@ async function onAsk() {
   const assistantMsg = reactive<Msg>({
     id: assistantId, roleType: 'ASSISTANT',
     messageContent: '', thinkingContent: '',
-    deepThinkingEnabled: deepThinking.value,
+    deepThinkingEnabled: useDeepThinking,
     // 初始 thinkingActive = false, 避免非思考模型显示"思考中..."
     // 只有真正解析到 <think> 标签时, processDeltaChunk 才会把它置为 true
     thinkingActive: false, thinkingStartTime: null,
@@ -815,7 +908,7 @@ async function onAsk() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
       signal: currentAbortController.signal,
-      body: JSON.stringify({ question: q, deepThinking: deepThinking.value, agentId: selectedAgentId.value, customAgentId: activeCustomAgentId.value, kbId: selectedKnowledgeBaseId.value, attachments: attachmentsPayload }),
+      body: JSON.stringify({ question: q, deepThinking: useDeepThinking, agentId: selectedAgentId.value, customAgentId: activeCustomAgentId.value, kbId: selectedKnowledgeBaseId.value, attachments: attachmentsPayload }),
     })
     if (!response.ok) {
       // 优先展示后端返回的真实提示 (如演示模式超限文案), 仅在无消息时回落默认文案
@@ -876,7 +969,7 @@ async function onAsk() {
             } else if (parsed.type === 'delta') {
               const chunk = parsed.delta || ''
               if (chunk) {
-                processDeltaChunk(assistantMsg, chunk, deepThinking.value)
+                processDeltaChunk(assistantMsg, chunk, useDeepThinking)
                 // 拿到第一个非 think 内容就停止 thinkingActive 状态
                 if (assistantMsg.thinkingActive && (assistantMsg.messageContent || assistantMsg.thinkParseState === 'AFTER_THINK')) {
                   assistantMsg.thinkingActive = false
@@ -991,10 +1084,12 @@ function onSettingsCommand(command: string) {
 
 async function checkMultimodalSupport() {
   try {
-    const info = await userApi.getModelInfo()
+    const info = await userApi.getModelInfo() as { supportsVision?: boolean; capabilities?: string[] } | null
     modelSupportsMultimodal.value = Boolean(info?.supportsVision)
+    modelSupportsThinking.value = Array.isArray(info?.capabilities) && info.capabilities.includes('thinking')
   } catch {
     modelSupportsMultimodal.value = false
+    modelSupportsThinking.value = false
   }
 }
 
@@ -1266,7 +1361,7 @@ function retryQuestion(text: string) {
         </div>
       </aside>
       <main class="c-main">
-        <div ref="messageScroller" class="chat-area" @click="onChatAreaClick">
+        <div ref="messageScroller" class="chat-area" @mousedown="onChatAreaMouseDown">
           <div class="welcome" v-if="!messages.length">
             <h2>RAG 问答系统</h2>
             <p>选择或创建会话，开始智能问答</p>
@@ -1300,7 +1395,12 @@ function retryQuestion(text: string) {
                         </template>
                       </span>
                     </div>
-                    <div v-if="msg.thinkingExpanded && msg.thinkingContent" class="think-body" v-html="renderMd(msg.thinkingContent)"></div>
+                    <!-- 折叠容器: grid-template-rows 0fr/1fr 过渡实现丝滑折叠/展开 -->
+                    <div class="think-collapse" :class="{ collapsed: !msg.thinkingExpanded }">
+                      <div class="think-collapse-inner">
+                        <div v-if="msg.thinkingContent" class="think-body" v-html="renderMd(msg.thinkingContent)"></div>
+                      </div>
+                    </div>
                   </div>
                   <div class="answer-body">
                     <template v-if="!msg.messageContent">
@@ -1325,7 +1425,7 @@ function retryQuestion(text: string) {
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
                   <button class="bubble-btn" type="button" title="引用" @click="quoteMessage(msg.messageContent, msg.roleType === 'USER' ? 'USER' : 'ASSISTANT')">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
                   </button>
                   <button v-if="msg.roleType === 'USER'" class="bubble-btn" type="button" title="重试" @click="retryQuestion(msg.messageContent)">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
@@ -1369,7 +1469,7 @@ function retryQuestion(text: string) {
               <button class="upload-btn" type="button" :title="modelSupportsMultimodal ? '上传文件或图片' : '当前模型不支持上传'" :disabled="!modelSupportsMultimodal" @click="triggerFileInput">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               </button>
-              <el-switch v-model="deepThinking" active-text="深度思考" :disabled="streaming" />
+              <el-switch v-if="modelSupportsThinking" v-model="deepThinking" active-text="深度思考" :disabled="streaming" />
             </div>
             <div class="composer-right-actions">
               <el-popover
@@ -1590,7 +1690,7 @@ function retryQuestion(text: string) {
 }
 .session-more:hover { background: #f3f4f6; color: #111827; }
 .empty-hint { color: #9ca3af; text-align: center; padding: 20px; font-size: 13px; }
-.c-main { flex: 1; display: flex; flex-direction: column; }
+.c-main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .chat-area { flex: 1; overflow-y: auto; padding: 24px; }
 .welcome { text-align: center; padding: 100px 0; }
 .welcome h2 { font-size: 24px; margin-bottom: 8px; color: #1f2937; }
@@ -1702,6 +1802,13 @@ function retryQuestion(text: string) {
   transform: translateY(-1px);
 }
 
+/* 复制成功: icon 临时变为绿色对勾 (3 秒后由 JS 复原) */
+:deep(.code-block-btn.is-copied) {
+  color: #16a34a;
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
 .think-block { margin-bottom: 10px; padding: 8px 10px; border-left: 3px solid #d1d5db; background: #f9fafb; border-radius: 4px; }
 .think-header { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 12px; color: #6b7280; line-height: 1.65; }
 .think-header:hover { color: #4b5563; }
@@ -1712,7 +1819,12 @@ function retryQuestion(text: string) {
 .dots span { animation: dot-blink 1.4s infinite both; }
 .dots span:nth-child(2) { animation-delay: 0.2s; }
 .dots span:nth-child(3) { animation-delay: 0.4s; }
-.think-body { font-size: 0.75em; color: #6b7280; line-height: 1.65; margin-top: 6px; padding: 4px 0 0; }
+/* 思考过程折叠容器: grid-rows 过渡, 折叠/展开均丝滑 */
+.think-collapse { display: grid; grid-template-rows: 1fr; opacity: 1; transition: grid-template-rows 0.28s ease, opacity 0.28s ease; }
+.think-collapse.collapsed { grid-template-rows: 0fr; opacity: 0; }
+.think-collapse-inner { overflow: hidden; min-height: 0; }
+/* 思考过程与正文区分: 更小字号 + 灰色 + 斜体 */
+.think-body { font-size: 0.75em; color: #6b7280; font-style: italic; line-height: 1.65; margin-top: 6px; padding: 4px 0 0; }
 .think-body :deep(p) { margin: 0 0 4px; }
 .think-body :deep(*:last-child) { margin-bottom: 0; }
 
@@ -1864,7 +1976,24 @@ function retryQuestion(text: string) {
 
 @keyframes dot-blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
 
-.composer { display: flex; flex-direction: column; gap: 10px; padding: 12px 20px; background: #fff; border-top: 1px solid #e5e7eb; }
+/* 输入区: 圆角矩形卡片, 引用条/附件/输入框/操作按钮均在盒内正常流排布 (按钮在底部一行), 不遮挡文字 */
+.composer {
+  display: flex; flex-direction: column; gap: 8px;
+  margin: 0 24px 16px;
+  padding: 10px 14px 10px;
+  background: #fff;
+  border: 1px solid #dcdfe6; border-radius: 16px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
+  transition: border-color .15s, box-shadow .15s;
+}
+.composer:focus-within { border-color: #409eff; box-shadow: 0 0 0 3px rgba(64, 158, 255, .12); }
+/* 输入框融入卡片: 去除自身边框与内边距, 外层卡片即为圆角矩形边界 */
+.composer :deep(.el-textarea__inner) {
+  border: none; box-shadow: none; background: transparent;
+  padding: 2px 2px 0;
+}
+.composer :deep(.el-textarea__inner):focus,
+.composer :deep(.el-textarea__inner):hover { border: none; box-shadow: none; }
 .composer-actions { display: flex; align-items: center; justify-content: space-between; }
 
 .composer-send-btn {
@@ -1919,8 +2048,8 @@ function retryQuestion(text: string) {
 .pending-att-remove { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: #fff; border: none; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; transition: background .15s; }
 .pending-att-remove:hover { background: #dc2626; }
 
-.composer.drag-over { position: relative; border-color: #409eff; background: #f0f7ff; }
-.drag-overlay { position: absolute; inset: 0; background: rgba(64,158,255,.08); border: 2px dashed #409eff; border-radius: 8px; display: flex; align-items: center; justify-content: center; z-index: 10; pointer-events: none; }
+.composer.drag-over { position: relative; border-color: #409eff; background: #f0f7ff; box-shadow: 0 0 0 3px rgba(64, 158, 255, .15); }
+.drag-overlay { position: absolute; inset: 0; background: rgba(64,158,255,.08); border: 2px dashed #409eff; border-radius: 16px; display: flex; align-items: center; justify-content: center; z-index: 10; pointer-events: none; }
 .drag-overlay-content { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #409eff; font-size: 14px; font-weight: 500; }
 
 .bubble-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }

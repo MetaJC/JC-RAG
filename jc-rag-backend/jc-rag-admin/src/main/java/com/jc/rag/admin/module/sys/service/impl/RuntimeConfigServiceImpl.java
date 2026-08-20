@@ -85,37 +85,73 @@ public class RuntimeConfigServiceImpl implements RuntimeConfigService {
         Map<String, String> dynamicConfig = loadDynamicConfig();
         String baseUrl = resolveString(dynamicConfig, "model.offline.ollama.baseUrl", RuntimeConfigDefaults.OLLAMA_BASE_URL);
         String tagsPath = resolveString(dynamicConfig, "model.offline.ollama.tagsPath", RuntimeConfigDefaults.OLLAMA_TAGS_PATH);
-        String url = normalizeBaseUrl(baseUrl) + (tagsPath == null ? "" : tagsPath.trim());
+        String tags = tagsPath == null ? "" : tagsPath.trim();
+
+        // 候选地址: 1) sys_config 运行时配置 (系统设置页维护);
+        // 2) 模型服务配置页保存的 Ollama 服务商记录 (该页只写 llm_provider_config, 不同步 sys_config, 两处地址可能不一致, 需互相兜底)
+        String primary = normalizeBaseUrl(baseUrl);
+        List<String> candidates = new java.util.ArrayList<>();
+        if (!primary.isBlank()) candidates.add(primary);
+        try {
+            LlmProviderConfigEntity ollamaProvider = llmProviderConfigMapper.selectLatestByProviderName("ollama");
+            if (ollamaProvider != null && ollamaProvider.getEndpoint() != null && !ollamaProvider.getEndpoint().isBlank()) {
+                String fallback = normalizeBaseUrl(ollamaProvider.getEndpoint());
+                if (!fallback.isBlank() && !candidates.contains(fallback)) candidates.add(fallback);
+            }
+        } catch (Exception ex) {
+            log.warn("listOllamaModels: read ollama provider config failed (non-fatal): {}", ex.getMessage());
+        }
 
         OllamaModelVO vo = new OllamaModelVO();
-        vo.setBaseUrl(url);
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofSeconds(10))
-                .header("Accept", MediaType.APPLICATION_JSON_VALUE)
-                .GET()
-                .build();
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            int statusCode = response.statusCode();
-            String body = response.body();
-            if (statusCode >= 400) {
-                vo.setModels(List.of());
+        vo.setBaseUrl(primary + tags);
+        vo.setModels(List.of());
+        String lastError = "未配置 Ollama 服务地址";
+        for (String candidate : candidates) {
+            String url = candidate + tags;
+            try {
+                HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(10))
+                    .header("Accept", MediaType.APPLICATION_JSON_VALUE)
+                    .GET()
+                    .build();
+                HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                int statusCode = response.statusCode();
+                String body = response.body();
+                if (statusCode >= 400) {
+                    lastError = url + " 返回 HTTP " + statusCode;
+                    log.warn("listOllamaModels: {} -> HTTP {}", url, statusCode);
+                    continue;
+                }
+                if (body == null || body.isBlank()) {
+                    lastError = url + " 返回空响应";
+                    continue;
+                }
+                Map<String, Object> payload = objectMapper.readValue(body, new TypeReference<Map<String, Object>>() {});
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> models = (List<Map<String, Object>>) payload.getOrDefault("models", List.of());
+                vo.setBaseUrl(url);
+                vo.setModels(models);
+                vo.setStatus("SUCCESS");
+                // 自愈: 兜底地址 (模型服务配置页) 与 sys_config 不一致且连接成功时, 回写 sys_config,
+                // 保证运行时配置 / 系统设置页 / 模型列表三处地址一致 (此前两处各存一份, 易出现一处改另一处没改导致列表为空)
+                if (!candidate.equals(primary)) {
+                    try {
+                        upsertConfig("model", "offline.ollama.baseUrl", candidate, "STRING", 0, "Ollama 地址 (由模型服务配置自动同步)");
+                        log.info("listOllamaModels: sys_config model.offline.ollama.baseUrl healed -> {}", candidate);
+                    } catch (Exception ex) {
+                        log.warn("listOllamaModels: heal sys_config baseUrl failed (non-fatal): {}", ex.getMessage());
+                    }
+                }
                 return vo;
+            } catch (Exception ex) {
+                lastError = url + " 连接失败: " + (ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage());
+                log.warn("listOllamaModels: {} -> {}", url, lastError);
             }
-            if (body == null || body.isBlank()) {
-                vo.setModels(List.of());
-                return vo;
-            }
-            Map<String, Object> payload = objectMapper.readValue(body, new TypeReference<Map<String, Object>>() {});
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> models = (List<Map<String, Object>>) payload.getOrDefault("models", List.of());
-            vo.setModels(models);
-            return vo;
-        } catch (Exception ex) {
-            vo.setModels(List.of());
-            return vo;
         }
+        vo.setStatus("FAILED");
+        vo.setMessage(lastError);
+        return vo;
     }
 
     @Override

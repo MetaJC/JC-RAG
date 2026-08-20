@@ -1,5 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { ElMessage } from 'element-plus'
 
 import { browseDirectory, fetchDevices, fetchOllamaModels, fetchRuntimeConfig, fetchServiceHealth, saveRuntimeConfig, verifyModel } from '../api/sys'
 import { appDefaults } from '../config/appDefaults'
@@ -143,6 +144,13 @@ export const useSystemStore = defineStore('system', () => {
     offlineModelLoading.value = true
     try {
       const data = await fetchOllamaModels()
+      // 后端查询失败 (地址不可达等) 时显式提示, 不再静默空列表
+      if (data && data.status === 'FAILED') {
+        offlineModelOptions.value = []
+        offlineModelDetails.value = {}
+        ElMessage.warning(`Ollama 模型列表获取失败：${data.message || '服务不可达'}（请检查模型服务配置中的服务地址）`)
+        return
+      }
       const names: string[] = []
       const details: Record<string, string[]> = {}
       for (const item of data.models ?? []) {
@@ -160,6 +168,10 @@ export const useSystemStore = defineStore('system', () => {
       const unique = Array.from(new Set(names)).filter((it) => it && it.trim().length > 0)
       offlineModelOptions.value = unique
       offlineModelDetails.value = details
+    } catch (error) {
+      offlineModelOptions.value = []
+      offlineModelDetails.value = {}
+      ElMessage.error(`Ollama 模型列表请求失败：${(error as Error)?.message || '网络异常'}`)
     } finally {
       offlineModelLoading.value = false
     }
