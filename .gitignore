@@ -1,0 +1,37 @@
+# ===================== JC RAG 开源版 .gitignore =====================
+# 本文件随社区版独立仓库生效（从原 monorepo 根 .gitignore 裁剪而来）
+
+# ---------- Java / Maven ----------
+**/target/
+*.iml
+*.class
+*.jar
+*.war
+
+# ---------- Python (uv) ----------
+**/__pycache__/
+**/.venv/
+.venv/
+.env
+*.pyc
+*.pyo
+*.egg-info/
+**/.venv-*/
+
+# ---------- Node / Vue / Vite / pnpm ----------
+**/node_modules/
+**/dist/
+**/dist-pro/
+*.tsbuildinfo
+
+# ---------- 前端构建产物注入 Spring Boot static（由前端构建生成，不入 git） ----------
+jc-rag-backend/*/src/main/resources/static/assets/
+
+# ---------- 商业版标识（社区版不含 .env.pro） ----------
+jc-rag-frontend/jc-rag-admin-web/.env.pro
+
+# ---------- 日志 / 运行时 ----------
+*.log
+logs/
+build-result.txt
+pnpm-install.log

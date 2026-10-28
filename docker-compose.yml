@@ -54,10 +54,10 @@ services:
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: etcd:2379
-      # MinIO 使用远程服务（启用密码），替换下方三项为实际远程地址与凭证
-      MINIO_ADDRESS: nas.elastic.org.cn:9999
-      MINIO_ACCESS_KEY_ID: admin
-      MINIO_SECRET_ACCESS_KEY: Nas@MinIO!
+      # MinIO 使用远程服务（启用密码），地址与凭证通过环境变量注入（见 .env.example）
+      MINIO_ADDRESS: ${MINIO_ADDRESS:-localhost:9000}
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_USE_SSL: "false"
     ports:
       - "19530:19530"
@@ -100,7 +100,7 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-root123}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me}
       MYSQL_DATABASE: ${DB_NAME:-jc_rag}
     ports:
       - "3308:3306"

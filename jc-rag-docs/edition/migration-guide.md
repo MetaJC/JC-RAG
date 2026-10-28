@@ -8,7 +8,7 @@
 
 确保以下条件全部满足:
 
-- [x] 当前单仓 (`gitee.com/Open-JC/jc-rag.git`) 已稳定运行
+- [x] 当前单仓 (`gitee.com/Open-JC/jc-rag-community.git`) 已稳定运行
 - [x] 商业版构建 (`build-pro.sh`) 通过
 - [x] 开源版构建 (`mvn -pl jc-rag-community/jc-rag-backend -am package`) 通过
 - [x] 所有敏感文件已加 `.gitignore` (已验证)
@@ -158,7 +158,7 @@ bash jc-rag-pro-script/sync-community-subtree.sh pull
 
 | 维度 | 商业仓 (origin) | 公开仓 (community) |
 |---|---|---|
-| **URL** | gitee.com/Open-JC/jc-rag.git | gitee.com/Open-JC/jc-rag-community.git |
+| **URL** | gitee.com/Open-JC/jc-rag-community.git | gitee.com/Open-JC/jc-rag-community.git |
 | **可见性** | 私有 | 公开 |
 | **谁可以访问** | 仅你 | 任何人 (clone/fork/PR) |
 | **包含内容** | jc-rag-pro-core/ + jc-rag-pro-enterprise/ + jc-rag-community/ + jc-rag-pro-script/ + LICENSE-KEY | jc-rag-community/ (纯开源) |

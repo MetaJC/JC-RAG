@@ -67,20 +67,20 @@
 
 ```bash
 # 商业仓 remote
-git remote add gitee-origin    https://gitee.com/Open-JC/jc-rag.git
-git remote add github-origin   https://github.com/Open-JC/jc-rag.git
+git remote add gitee-origin    https://gitee.com/Open-JC/jc-rag-community.git
+git remote add github-origin   https://github.com/MetaJC/JC-Rag.git
 
 # 公开仓 remote (subtree 拆分后才有)
 git remote add gitee-community  https://gitee.com/Open-JC/jc-rag-community.git
-git remote add github-community https://github.com/Open-JC/jc-rag-community.git
+git remote add github-community https://github.com/MetaJC/JC-Rag.git
 
 # 验证
 git remote -v
 # 期望:
-# gitee-origin       https://gitee.com/Open-JC/jc-rag.git
-# github-origin      https://github.com/Open-JC/jc-rag.git
+# gitee-origin       https://gitee.com/Open-JC/jc-rag-community.git
+# github-origin      https://github.com/MetaJC/JC-Rag.git
 # gitee-community    https://gitee.com/Open-JC/jc-rag-community.git
-# github-community   https://github.com/Open-JC/jc-rag-community.git
+# github-community   https://github.com/MetaJC/JC-Rag.git
 ```
 
 ### 3. 简化命令: 一键推双平台

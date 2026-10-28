@@ -5,7 +5,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  商业版私有仓 (origin)                                        │
-│  gitee.com/Open-JC/jc-rag.git                                │
+│  gitee.com/Open-JC/jc-rag-community.git                                │
 │  ┌──────────┬──────────┬──────────┬──────────┐               │
 │  │jc-rag-community/ │jc-rag-pro-core/ │jc-rag-pro-enterprise/ │jc-rag-pro-script/│               │
 │  └──────────┴──────────┴──────────┴──────────┘               │
@@ -24,7 +24,7 @@
 
 ## 当前状态（v0.x 阶段）
 
-**单仓结构**：所有代码（含 jc-rag-community/）都在 `gitee.com/Open-JC/jc-rag.git` 一个仓库里。
+**单仓结构**：所有代码（含 jc-rag-community/）都在 `gitee.com/Open-JC/jc-rag-community.git` 一个仓库里。
 
 `.gitmodules` 已删除（单仓结构不需要）。
 
