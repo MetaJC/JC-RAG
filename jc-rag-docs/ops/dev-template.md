@@ -56,7 +56,7 @@
    ```yaml
    spring:
      datasource:
-       url: jdbc:mysql://${DB_HOST:192.168.1.100}:${DB_PORT:3306}/jc_rag
+       url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/jc_rag
        username: ${DB_USER:jc_rag}
        password: ${DB_PASSWORD:}
    ```

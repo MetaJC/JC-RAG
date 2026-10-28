@@ -165,6 +165,16 @@ class Settings(BaseModel):
     vector_store: VectorStoreConfig = VectorStoreConfig()
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """递归合并 override 到 base (local 覆盖文件优先)."""
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
 def _load_yaml_config() -> dict[str, Any]:
     config_path = Path(
         os.environ.get(
@@ -173,7 +183,18 @@ def _load_yaml_config() -> dict[str, Any]:
         )
     )
     with config_path.open("r", encoding="utf-8") as file:
-        return yaml.safe_load(file)
+        config = yaml.safe_load(file) or {}
+
+    # 本地私有覆盖: rag_config.local.yml (已 gitignore, 不入公开仓).
+    # 用于存放本机绝对路径 / 真实凭证等不宜入库的配置, 与基础配置深合并, local 优先.
+    local_path = config_path.parent / "rag_config.local.yml"
+    if local_path.exists():
+        with local_path.open("r", encoding="utf-8") as file:
+            local_config = yaml.safe_load(file) or {}
+        if isinstance(config, dict) and isinstance(local_config, dict):
+            _deep_merge(config, local_config)
+
+    return config
 
 
 @lru_cache

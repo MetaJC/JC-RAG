@@ -5,7 +5,10 @@ app:
   port: 8001
 
 embedding:
-  model_path: D:\Users\JC\.jc-rag\models\embedding\bge-large-zh-v1.5
+  # 本地模型目录 (相对项目根或绝对路径均可).
+  # 本机真实路径等不宜入库的配置放 rag_config.local.yml (已 gitignore), 加载时自动覆盖此值.
+  # 参考: https://huggingface.co/BAAI/bge-large-zh-v1.5
+  model_path: models/embedding/bge-large-zh-v1.5
   device: auto
   dims: 1024
   batch_size: 32
@@ -45,7 +48,8 @@ vector_store:
     host: 127.0.0.1
     port: 19530
     user: root
-    password: Milvus
+    # Milvus root 口令不硬编码 (本机真实值放 rag_config.local.yml, 已 gitignore)
+    password: ""
     default_collection: jc_rag_chunks_community
 
 memory:

@@ -10,17 +10,18 @@
 
 ```
 jc-rag-community/                              ← 公开仓库根
-├── frontend/                                  ← 前端 (Vue 3 + Vite)
+├── jc-rag-frontend/                           ← 前端 (Vue 3 + Vite)
 │   ├── jc-rag-admin-web/                      ← 管理后台
 │   └── jc-rag-user-web/                       ← C 端用户
 │
-├── backend-java/                              ← Java 后端 (Spring Boot 3.3)
+├── jc-rag-backend/                            ← Java 后端 (Spring Boot 3.3)
 │   ├── jc-rag-common/                         ← 公共代码 (接口 / DTO / 异常)
 │   ├── jc-rag-domain/                         ← 领域层 (MyBatis-Plus + Mapper XML)
-│   ├── jc-rag-admin/                          ← 管理端后端
+│   ├── jc-rag-sms/                            ← 短信服务
+│   ├── jc-rag-admin/                          ← 管理端后端 (含 Flyway 迁移脚本)
 │   └── jc-rag-user/                           ← C 端后端
 │
-├── backend-python/                            ← Python RAG 服务 (FastAPI)
+├── jc-rag-service/                            ← Python RAG 服务 (FastAPI)
 │   ├── app/                                   ← 应用代码
 │   │   ├── agents/                            ← Agent 框架
 │   │   ├── api/                               ← API 路由
@@ -32,21 +33,23 @@ jc-rag-community/                              ← 公开仓库根
 │   │   ├── skills/                            ← Skills (业务能力)
 │   │   └── utils/                             ← 工具 (chunk / ES / MinIO / OCR)
 │   ├── main.py                                ← FastAPI 入口
-│   ├── rag_config.yml                         ← RAG 配置
-│   └── requirements.txt                       ← Python 依赖
+│   ├── rag_config.yml                         ← RAG 基础配置
+│   ├── rag_config.local.yml.example           ← 本地私有覆盖示例 (路径/凭证)
+│   └── requirements.txt                       ← Python 依赖 (由 uv.lock 导出)
 │
-└── docs/                                      ← 文档
+└── jc-rag-docs/                               ← 文档
     ├── architecture/                          ← 架构文档
-    │   ├── system-architecture.md             ← 系统架构
+    │   ├── 项目总览与系统架构.md              ← 系统架构
     │   ├── modules.md                         ← 模块说明
     │   ├── knowledge-parse-pipeline.md        ← 知识解析流水线
+    │   ├── memory-system.md                   ← 记忆系统 (L2 / L3)
     │   └── monorepo-edition.md                ← 双版本架构 (开源 + 商业)
+    ├── database/                              ← 数据库文档 (schema / Flyway)
     ├── api.md                                 ← API 文档
     ├── startup-guide.md                       ← 启动指南
-    ├── sql/                                   ← 数据库脚本
-    │   └── mysql/                             ← MySQL 初始化脚本
     ├── es/                                    ← Elasticsearch 索引 / 查询
-    └── ops/                                   ← 运维文档
+    ├── ops/                                   ← 运维文档
+    └── edition/                               ← 版本拆分 / 迁移指南
 ```
 
 ## 快速开始
@@ -61,17 +64,18 @@ jc-rag-community/                              ← 公开仓库根
 
 ### 1. 初始化数据库
 
-```bash
-mysql -uroot -p < docs/sql/mysql/001_jc_rag_all_in_one.sql
-mysql -uroot -p jc_rag < docs/sql/mysql/002_modules.sql
-mysql -uroot -p jc_rag < docs/sql/mysql/003_seed_data.sql
-# ... 按编号顺序执行
+创建数据库 `jc_rag` (utf8mb4) 即可, 后端启动时 **Flyway 会自动执行**迁移脚本 (位于 `jc-rag-backend/jc-rag-admin/src/main/resources/db/migration/community/`, V1 全量建表 + V2+ 增量), 无需手动导入:
+
+```sql
+CREATE DATABASE jc_rag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
+
+> 迁移机制详见 [jc-rag-docs/database/flyway.md](jc-rag-docs/database/flyway.md).
 
 ### 2. 启动后端
 
 ```bash
-cd backend-java
+cd jc-rag-backend
 mvn -pl jc-rag-common,jc-rag-domain -am clean install -DskipTests
 mvn -pl jc-rag-admin spring-boot:run -Dspring-boot.run.profiles=dev
 ```
@@ -87,12 +91,14 @@ npm run dev
 ### 4. 启动 Python RAG
 
 ```bash
-cd backend-python
+cd jc-rag-service
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python main.py
 ```
+
+> 本机模型路径 / 真实凭证等配置: 复制 `rag_config.local.yml.example` 为 `rag_config.local.yml` 进行覆盖 (已被 .gitignore 忽略, 不会提交), 加载时自动合并、优先于 `rag_config.yml`.
 
 ## 核心能力
 
@@ -118,7 +124,7 @@ python main.py
 
 商业合作: jc-rag@example.com
 
-> 产品线规划为社区版 / 专业版 (Pro) / 企业版 (Enterprise) 三个版本, 功能划分见 [三版本功能规划矩阵](../jc-rag-pro/jc-rag-pro-docs/roadmap/edition-feature-matrix.md)。
+> 产品线规划为社区版 / 专业版 (Pro) / 企业版 (Enterprise) 三个版本, 商业合作请邮件联系。
 
 ## 贡献
 

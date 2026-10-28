@@ -35,3 +35,6 @@ jc-rag-frontend/jc-rag-admin-web/.env.pro
 logs/
 build-result.txt
 pnpm-install.log
+
+# ---------- 本地私有配置覆盖 (真实路径/凭证, 不入库) ----------
+jc-rag-service/rag_config.local.yml

@@ -1,0 +1,14 @@
+# JC RAG 本地私有配置覆盖示例
+#
+# 用法: 复制本文件为 rag_config.local.yml (已被 .gitignore 忽略, 不会提交)
+# 机制: 与 rag_config.yml 深度合并, rag_config.local.yml 中的键优先
+# 用途: 存放本机绝对路径 / 真实凭证等不宜入库的配置
+#
+# 示例 (按需取消注释并修改):
+#
+# embedding:
+#   model_path: D:\your\path\to\models\embedding\bge-large-zh-v1.5
+#
+# vector_store:
+#   milvus:
+#     password: your-milvus-password
