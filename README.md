@@ -130,7 +130,7 @@ python main.py
 
 ## License
 
-MIT License — 详见 [LICENSE](LICENSE) 文件.
+Apache License 2.0 — 详见 [LICENSE](LICENSE) 文件.
 
 ## 双版本架构
 
