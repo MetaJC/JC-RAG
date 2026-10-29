@@ -12,10 +12,17 @@ Source repository:
 - Gitee: https://gitee.com/Open-JC/jc-rag
 - GitHub: https://github.com/MetaJC/JC-RAG
 
+## Docs & Live Demo
+
+- Development docs: https://www.openjc.cc/doc/projects/jc-rag
+- Live demo:
+  - Client: http://rag.openjc.cc/
+  - Admin: http://admin.rag.openjc.cc/
+
 ## Repository structure
 
 ```
-jc-rag-community/                              ← public repo root
+jc-rag/                                    ← public repo root
 ├── jc-rag-frontend/                           ← frontend (Vue 3 + Vite)
 │   ├── jc-rag-admin-web/                      ← admin console
 │   └── jc-rag-user-web/                       ← end-user portal

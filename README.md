@@ -12,10 +12,17 @@ English: [README.en.md](README.en.md)
 - Gitee: https://gitee.com/Open-JC/jc-rag
 - GitHub: https://github.com/MetaJC/JC-RAG
 
+## 文档与在线体验
+
+- 开发文档：https://www.openjc.cc/doc/projects/jc-rag
+- 在线体验：
+  - 客户端：http://rag.openjc.cc/
+  - 管理端：http://admin.rag.openjc.cc/
+
 ## 仓库结构
 
 ```
-jc-rag-community/                              ← 公开仓库根
+jc-rag/                                    ← 公开仓库根
 ├── jc-rag-frontend/                           ← 前端 (Vue 3 + Vite)
 │   ├── jc-rag-admin-web/                      ← 管理后台
 │   └── jc-rag-user-web/                       ← C 端用户
