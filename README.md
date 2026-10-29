@@ -2,9 +2,15 @@
 
 > **JC RAG** 是一个企业级 RAG (检索增强生成) 知识库系统, 支持多轮对话、知识库管理、权限控制、智能检索等核心能力.
 
+English: [README.en.md](README.en.md)
+
 ## 这是什么仓库
 
-本仓库是 JC RAG 的**开源免费版本**, 独立维护. 商业付费版本 (JC RAG Pro) 在私有仓库中基于本仓库二次构建, 详情见 [docs/architecture/monorepo-edition.md](docs/architecture/monorepo-edition.md).
+本仓库是 JC RAG 的**开源免费版本**, 独立维护. 商业付费版本 (JC RAG Pro) 在私有仓库中基于本仓库二次构建, 详见在线文档.
+
+开源仓库地址:
+- Gitee: https://gitee.com/Open-JC/jc-rag
+- GitHub: https://github.com/MetaJC/JC-RAG
 
 ## 仓库结构
 
@@ -23,34 +29,17 @@ jc-rag-community/                              ← 公开仓库根
 │
 ├── jc-rag-service/                            ← Python RAG 服务 (FastAPI)
 │   ├── app/                                   ← 应用代码
-│   │   ├── agents/                            ← Agent 框架
-│   │   ├── api/                               ← API 路由
-│   │   ├── core/                              ← 核心 (配置 / 设备检测 / 进度)
-│   │   ├── embeddings/                        ← Embedding 接入
-│   │   ├── llm/                               ← LLM Provider 工厂
-│   │   ├── loaders/                           ← 文档加载器 (PDF/DOCX/PPTX/XLSX/TXT)
-│   │   ├── retrievers/                        ← 检索器
-│   │   ├── skills/                            ← Skills (业务能力)
-│   │   └── utils/                             ← 工具 (chunk / ES / MinIO / OCR)
 │   ├── main.py                                ← FastAPI 入口
 │   ├── rag_config.yml                         ← RAG 基础配置
 │   ├── rag_config.local.yml.example           ← 本地私有覆盖示例 (路径/凭证)
-│   └── requirements.txt                       ← Python 依赖 (由 uv.lock 导出)
+│   └── requirements.txt                       ← Python 依赖
 │
-└── jc-rag-docs/                               ← 文档
-    ├── architecture/                          ← 架构文档
-    │   ├── 项目总览与系统架构.md              ← 系统架构
-    │   ├── modules.md                         ← 模块说明
-    │   ├── knowledge-parse-pipeline.md        ← 知识解析流水线
-    │   ├── memory-system.md                   ← 记忆系统 (L2 / L3)
-    │   └── monorepo-edition.md                ← 双版本架构 (开源 + 商业)
-    ├── database/                              ← 数据库文档 (schema / Flyway)
-    ├── api.md                                 ← API 文档
-    ├── startup-guide.md                       ← 启动指南
-    ├── es/                                    ← Elasticsearch 索引 / 查询
-    ├── ops/                                   ← 运维文档
-    └── edition/                               ← 版本拆分 / 迁移指南
+├── docker-compose.yml                         ← 一键编排 (基础服务 + community Python)
+├── LICENSE                                    ← Apache License 2.0
+└── README.md
 ```
+
+> 完整文档（架构、数据库、API、运维、版本拆分/迁移指南等）以**在线文档**形式发布, 不随仓库分发.
 
 ## 快速开始
 
@@ -70,8 +59,6 @@ jc-rag-community/                              ← 公开仓库根
 CREATE DATABASE jc_rag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-> 迁移机制详见 [jc-rag-docs/database/flyway.md](jc-rag-docs/database/flyway.md).
-
 ### 2. 启动后端
 
 ```bash
@@ -83,7 +70,7 @@ mvn -pl jc-rag-admin spring-boot:run -Dspring-boot.run.profiles=dev
 ### 3. 启动前端
 
 ```bash
-cd frontend/jc-rag-admin-web
+cd jc-rag-frontend/jc-rag-admin-web
 npm install
 npm run dev
 ```
@@ -99,6 +86,26 @@ python main.py
 ```
 
 > 本机模型路径 / 真实凭证等配置: 复制 `rag_config.local.yml.example` 为 `rag_config.local.yml` 进行覆盖 (已被 .gitignore 忽略, 不会提交), 加载时自动合并、优先于 `rag_config.yml`.
+
+## 环境变量覆盖
+
+开发配置文件中的数据库 / Redis / MinIO / Elasticsearch / Python RAG 地址均支持环境变量覆盖, 格式为 `${ENV:默认值}` (有环境变量用环境变量, 无则用默认值):
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `DB_HOST` | `localhost` | MySQL 主机 |
+| `DB_PORT` | `3306` | MySQL 端口 |
+| `DB_USERNAME` | `root` | MySQL 用户名 |
+| `DB_PASSWORD` | `root` | MySQL 密码 |
+| `REDIS_HOST` | `localhost` | Redis 主机 |
+| `REDIS_PORT` | `6379` | Redis 端口 |
+| `PYTHON_RAG_URL` | `http://localhost:8001` | Python RAG 服务地址 |
+| `MINIO_ENDPOINT` | `http://localhost:9000` | MinIO 地址 |
+| `MINIO_ACCESS_KEY` | `minioadmin` | MinIO AccessKey |
+| `MINIO_SECRET_KEY` | `minioadmin` | MinIO SecretKey |
+| `ELASTICSEARCH_URL` | `http://localhost:9200` | Elasticsearch 地址 |
+
+> Docker Compose 通过 `.env` (参考 `.env.example`) 注入 `MYSQL_ROOT_PASSWORD` / `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` 等.
 
 ## 核心能力
 
@@ -124,7 +131,7 @@ python main.py
 
 商业合作: jc-rag@example.com
 
-> 产品线规划为社区版 / 专业版 (Pro) / 企业版 (Enterprise) 三个版本, 商业合作请邮件联系。
+> 产品线规划为社区版 / 专业版 (Pro) / 企业版 (Enterprise) 三个版本, 商业合作请邮件联系.
 
 ## 贡献
 
@@ -134,10 +141,12 @@ python main.py
 - 单元测试覆盖率 ≥ 80%
 - 通过所有 CI 检查
 
+详见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## 安全
+
+如发现安全漏洞, 请按 [SECURITY.md](SECURITY.md) 的流程私披露, 勿公开 Issue.
+
 ## License
 
 Apache License 2.0 — 详见 [LICENSE](LICENSE) 文件.
-
-## 双版本架构
-
-本仓库是**双版本架构**中的开源仓库, 商业版通过 submodule 引用本仓库. 详细架构说明见 [docs/architecture/monorepo-edition.md](docs/architecture/monorepo-edition.md).

@@ -94,16 +94,16 @@ services:
     networks:
       - jc-rag-net
 
-  # ============================ mysql (host 3308 避开本地 MySQL 冲突) ============================
+  # ============================ mysql ============================
   mysql:
     container_name: jc-rag-mysql
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change-me}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: ${DB_NAME:-jc_rag}
     ports:
-      - "3308:3306"
+      - "3306:3306"
     volumes:
       - ../volumes/mysql:/var/lib/mysql
     networks:

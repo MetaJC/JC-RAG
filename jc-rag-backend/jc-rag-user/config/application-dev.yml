@@ -3,17 +3,19 @@
 # -----------------------------------------------------------------------------
 # 仅存放开发环境专属值: 本地数据源 / 本地服务地址.
 # 环境无关配置见 application.yml.
+# 以下地址/凭证均支持环境变量覆盖, 格式 ${ENV:默认值}: 有环境变量用环境变量, 无则用默认值.
+#   示例: DB_HOST / DB_PORT / DB_USERNAME / DB_PASSWORD / REDIS_HOST / REDIS_PORT / PYTHON_RAG_URL
 # =============================================================================
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3308/jc_rag?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
-    username: root
-    password: root123456
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/jc_rag?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&useSSL=false
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
   data:
     redis:
-      host: localhost
-      port: 6379
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
       timeout: 3000ms
 
 service:
@@ -21,7 +23,7 @@ service:
     rag:
       # [兜底默认值] user 端直接读取本配置 (无 sys_config 覆盖入口);
       # 修改 Python RAG 服务地址需同步修改此处与 admin 端配置.
-      base-url: http://localhost:8001
+      base-url: ${PYTHON_RAG_URL:http://localhost:8001}
 
 # L3 跨会话画像触发配置 (与 Python 端 rag_config.yml: memory.profile 配合)
 jc-rag:
@@ -48,4 +50,3 @@ jc-rag:
   #     app-id: '1400xxxxxx'
   #     sign: 您的短信签名
   #     template-code: 您的模板 ID
-
