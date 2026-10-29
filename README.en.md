@@ -57,6 +57,11 @@ jc-rag/                                    ← public repo root
 - Python 3.10+
 - MySQL 8.0+ / Redis 7+ / Elasticsearch 8.x / Milvus 2.4+ / MinIO
 
+> **Python dependencies & PyTorch (important)**:
+> - The `jc-rag-service` **base dependencies** (`pip install -r requirements.txt` or `pip install -e .`) **do NOT include PyTorch**.
+> - **PyTorch is only needed when running local models** (local Embedding / local LLM): additionally run `pip install -e .[local-model]` (pulls in PyTorch via `sentence-transformers`, ~1–2GB), and install the matching torch wheel for your GPU (NVIDIA CUDA / Intel·AMD DirectML / Apple MPS / AMD ROCm / Intel XPU).
+> - **When using online models** (OpenAI / DeepSeek / Qwen, etc., set `embedding.source: service`), **PyTorch is not required** — the base dependencies are enough.
+
 ### 1. Initialize the database
 Create the `jc_rag` database (utf8mb4). Flyway runs migrations automatically on backend startup (under `jc-rag-backend/jc-rag-admin/src/main/resources/db/migration/community/`). No manual import needed:
 

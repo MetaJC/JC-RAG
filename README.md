@@ -58,6 +58,11 @@ jc-rag/                                    ← 公开仓库根
 - Python 3.10+
 - MySQL 8.0+ / Redis 7+ / Elasticsearch 8.x / Milvus 2.4+ / MinIO
 
+> **Python 依赖与 PyTorch（重要）**：
+> - `jc-rag-service` 的**基础依赖**（`pip install -r requirements.txt` 或 `pip install -e .`）**不含 PyTorch**。
+> - **仅当使用本地模型推理（本地 Embedding / 本地 LLM）时**才需要 PyTorch：额外安装 `pip install -e .[local-model]`（会经由 `sentence-transformers` 引入 PyTorch，约 1~2GB），并按显卡选装对应 torch wheel（NVIDIA CUDA / Intel·AMD DirectML / Apple MPS / AMD ROCm / Intel XPU）。
+> - **使用在线模型（OpenAI / DeepSeek / 通义千问 等，配置 `embedding.source: service`）时，不需要 PyTorch**，只装基础依赖即可。
+
 ### 1. 初始化数据库
 
 创建数据库 `jc_rag` (utf8mb4) 即可, 后端启动时 **Flyway 会自动执行**迁移脚本 (位于 `jc-rag-backend/jc-rag-admin/src/main/resources/db/migration/community/`, V1 全量建表 + V2+ 增量), 无需手动导入:
