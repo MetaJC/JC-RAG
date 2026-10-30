@@ -4,11 +4,7 @@
 
 English: [README.en.md](README.en.md)
 
-## 这是什么仓库
-
-本仓库是 JC RAG 的**开源免费版本**, 独立维护. 商业付费版本 (JC RAG Pro) 在私有仓库中基于本仓库二次构建, 详见在线文档.
-
-开源仓库地址:
+## 仓库地址
 - Gitee: https://gitee.com/Open-JC/jc-rag
 - GitHub: https://github.com/MetaJC/JC-RAG
 

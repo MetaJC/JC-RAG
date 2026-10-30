@@ -69,6 +69,10 @@ tmp/
 .scratch/
 .cache/
 
+# ---------- 编译 / 构建残留（TS 编译产物 .js_del、uv 同步日志等，不入 git） ----------
+*.js_del
+uv-sync*.log*
+
 # ---------- 操作系统 / IDE ----------
 .DS_Store
 Thumbs.db
